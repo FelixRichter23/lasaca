@@ -163,5 +163,32 @@ check('C4(850 nm) via TX chain', IEC.C4(tx850.lambdaNm), Math.pow(10, 0.3), 0.00
 const tx850hot = Sim.Optics.computeTxBeam({ ...p850, tempC: 85 });
 check('λ drift 850 nm @ 85 °C', tx850hot.lambdaNm, 850 + 0.28 * 60, 0.001);
 
+// --- 15. Adjustable pulse-train protocol ----------------------------------
+const pProto = { ...p, bitsPerFrame: 32, framesPerS: 10, pulseFreqKHz: 3.3 };
+const txProto = Sim.Optics.computeTxBeam(pProto);
+// duty = 100 ns × 32 × 10 = 3.2e-7
+check('custom protocol duty cycle', txProto.dutyCycle, 100e-9 * 32 * 10, 1e-9);
+const safetyProto = Sim.Safety.classify(pProto, txProto);
+// N = 320 pulses/s × min(100 s, T2=10.12 s) ≈ 3237 (no Ti merge at 3.3 kHz)
+check('custom protocol N', safetyProto.nEff, Math.round(32 * 10 * safetyProto.evalDur), 0.01);
+console.log(`  custom protocol: duty=${(txProto.dutyCycle * 100).toFixed(4)}%, N=${safetyProto.nEff}, C5=${safetyProto.c5.toFixed(2)}`);
+
+// --- 16. AGC + electronics chain -------------------------------------------
+const rxNow = Sim.Receiver.linkBudget(p, tx, 200);
+const pAgc = { ...p, agcOn: true, agcTargetV: 1.0 };
+const rxAgc = Sim.Receiver.linkBudget(pAgc, tx, 200);
+check('AGC gain = target / I_signal', rxAgc.gainUsed, 1.0 / rxAgc.iSignal, 0.001);
+check('AGC V_signal hits target', rxAgc.vSignal, 1.0, 0.01);
+const chain = Sim.Receiver.evalChain({ ...pAgc, compThreshMv: 50, monoStretchUs: 10 }, rxAgc);
+console.log(`  chain @200m AGC: detect=${chain.detectOk}, clip=${chain.clipping}, clean=${chain.clean}, margin=${chain.marginDb.toFixed(1)} dB`);
+if (!chain.detectOk) { console.log('❌ AGC chain should detect 1 V signal at 50 mV threshold'); failures++; }
+// comparator must reject a tiny signal
+const chainWeak = Sim.Receiver.evalChain({ ...p, compThreshMv: 50, monoStretchUs: 10 },
+    { ...rxNow, vSignal: 0.001, vNoiseRMS: rxNow.vNoiseRMS });
+if (chainWeak.detectOk) { console.log('❌ comparator accepted sub-threshold signal'); failures++; }
+else console.log('✅ comparator rejects sub-threshold signal');
+// monostable stretch
+check('monostable stretch 100 ns → 10 µs', chain.monoOutUs, 10, 0);
+
 console.log(failures === 0 ? '\n🎉 ALL CHECKS PASSED' : `\n💥 ${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

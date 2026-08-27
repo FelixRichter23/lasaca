@@ -1161,3 +1161,125 @@ input[type=range]::-webkit-slider-thumb:hover {
     transform: none;
     box-shadow: 0 4px 18px rgba(255, 51, 102, 0.35);
 }
+
+/* =============================================================
+   TASK.TXT FEATURES — protocol inputs, chain panel, info lines
+   ============================================================= */
+
+/* --- Number inputs (exact entry) ------------------------------- */
+.num-input {
+    width: 100%;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-main);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    border-radius: 6px;
+    outline: none;
+}
+
+.num-input:focus {
+    border-color: var(--accent-blue);
+}
+
+.slider-num-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.slider-num-row input[type=range] {
+    flex: 1;
+}
+
+.slider-num-row .num-input {
+    width: 74px;
+    flex-shrink: 0;
+}
+
+/* --- Compact info readouts (protocol, divergence) --------------- */
+.info-line {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin: 4px 0 12px;
+    line-height: 1.5;
+}
+
+/* --- RX electronics chain panel --------------------------------- */
+.chain-panel {
+    grid-column: 1 / -1;
+}
+
+.chain-flow {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.chain-stage {
+    flex: 1;
+    min-width: 130px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 3px solid var(--accent-green);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+.chain-stage.bad {
+    border-top-color: var(--accent-red);
+}
+
+.chain-head {
+    font-weight: 700;
+    font-size: 0.85rem;
+    margin-bottom: 6px;
+}
+
+.chain-line {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+}
+
+.chain-arrow {
+    align-self: center;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.chain-reasons {
+    margin-top: 10px;
+    font-size: 0.8rem;
+    color: var(--accent-yellow);
+    line-height: 1.5;
+}
+
+.chain-reasons:empty {
+    display: none;
+}
+
+@media (min-width: 1850px), (min-aspect-ratio: 19/10) {
+    .chain-panel {
+        grid-column: 1 / -1;
+        grid-row: 4;
+    }
+}
+
+@media (max-width: 600px) {
+    .chain-flow {
+        flex-direction: column;
+    }
+    .chain-arrow {
+        transform: rotate(90deg);
+    }
+}
