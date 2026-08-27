@@ -19,6 +19,9 @@
         driveCurrent: $('driveCurrent'),
         pulseWidth: $('pulseWidth'),
         pulseFreq: $('pulseFreq'),
+        pulseFreqNum: $('pulseFreqNum'),
+        bitsPerFrame: $('bitsPerFrame'),
+        framesPerS: $('framesPerS'),
         riseTime: $('riseTime'),
         wavelength: $('wavelength'),
         emitterWidth: $('emitterWidth'),
@@ -31,6 +34,8 @@
         focalFac: $('focalFac'),
         focalSlow: $('focalSlow'),
         focalFast: $('focalFast'),
+        manualDivSlow: $('manualDivSlow'),
+        manualDivFast: $('manualDivFast'),
         lensTransmission: $('lensTransmission'),
         distance: $('distance'),
         weatherPreset: $('weatherPreset'),
@@ -41,6 +46,10 @@
         sensorFilter: $('sensorFilter'),
         acCoupling: $('acCoupling'),
         tiaGain: $('tiaGain'),
+        agcMode: $('agcMode'),
+        agcTarget: $('agcTarget'),
+        compThresh: $('compThresh'),
+        monoStretch: $('monoStretch'),
         timeBase: $('timeBase'),
         simplifiedEval: $('simplifiedEval'),
         faultMode: $('faultMode'),
@@ -55,16 +64,19 @@
     let isShooting = false;
     let simState = {};
 
-    // Deterministic 65-bit protocol frame: 8-bit sync 0x7E + 57-bit payload (LCG)
-    const DATA_FRAME = (function () {
+    // Deterministic protocol frame: 8-bit sync 0x7E + pseudo-random payload (LCG).
+    // Regenerated (cached) when the pulses-per-frame setting changes.
+    const frameCache = {};
+    function genFrame(n) {
+        if (frameCache[n]) return frameCache[n];
         const bits = [0, 1, 1, 1, 1, 1, 1, 0];
         let seed = 0xBEEF;
-        while (bits.length < PROT.BITS_PER_FRAME) {
+        while (bits.length < n) {
             seed = (seed * 1103515245 + 12345) & 0x7fffffff;
             bits.push((seed >> 16) & 1);
         }
-        return bits;
-    })();
+        return (frameCache[n] = bits.slice(0, n));
+    }
 
     // ------------------------------------------------------------------
     // Parameter bundle
@@ -78,7 +90,9 @@
         return {
             iForward: parseFloat(inputs.driveCurrent.value),
             pulseWidthNs: parseFloat(inputs.pulseWidth.value),
-            pulseFreqKHz: parseFloat(inputs.pulseFreq.value),
+            pulseFreqKHz: parseFloat(inputs.pulseFreqNum.value || inputs.pulseFreq.value),
+            bitsPerFrame: parseInt(inputs.bitsPerFrame.value, 10) || PROT.BITS_PER_FRAME,
+            framesPerS: parseFloat(inputs.framesPerS.value) || PROT.MAX_FRAMES_PER_S,
             riseTimeNs: parseFloat(inputs.riseTime.value),
             lambdaNm: parseFloat(inputs.wavelength.value),
             emitterWum: parseFloat(inputs.emitterWidth.value),
@@ -91,6 +105,8 @@
             fFacMm: parseFloat(inputs.focalFac.value),
             fSlowMm: parseFloat(inputs.focalSlow.value),
             fFastMm: parseFloat(inputs.focalFast.value),
+            manualDivSlowMrad: parseFloat(inputs.manualDivSlow.value) || 2.5,
+            manualDivFastMrad: parseFloat(inputs.manualDivFast.value) || 10,
             tArPct: parseFloat(inputs.lensTransmission.value),
             distM: parseFloat(inputs.distance.value),
             visibilityKm,
@@ -100,6 +116,10 @@
             filterBw: parseFloat(inputs.sensorFilter.value),
             acCoupling: inputs.acCoupling.value,
             gain: parseFloat(inputs.tiaGain.value),
+            agcOn: inputs.agcMode.value === 'agc',
+            agcTargetV: parseFloat(inputs.agcTarget.value),
+            compThreshMv: parseFloat(inputs.compThresh.value) || 50,
+            monoStretchUs: parseFloat(inputs.monoStretch.value) || 10,
             timeBaseS: parseFloat(inputs.timeBase.value),
             simplifiedEval: inputs.simplifiedEval.value === 'simplified',
             faultMode: inputs.faultMode.value,
@@ -208,6 +228,7 @@
         else if (mode === 'fac') { show.ctrlMainFocal = true; show.ctrlFacFocal = true; badge = 'FAC + Main Collimator'; }
         else if (mode === 'anamorphic') { show.ctrlFocalSlow = true; show.ctrlFocalFast = true; badge = 'Anamorphic Cylindrical Pair'; }
         Object.entries(show).forEach(([id, vis]) => { $(id).style.display = vis ? 'block' : 'none'; });
+        $('ctrlDivManual').style.display = mode === 'manual' ? 'block' : 'none';
         $('opticsBadge').innerText = badge;
     }
 
@@ -245,6 +266,20 @@
 
         // ---- Diode / duty cycle -----------------------------------------
         $('calcPeakPowerTxt').innerText = tx.diodePeakPowerW.toFixed(1);
+
+        // Protocol info line (frame length / period / average pulse rate)
+        const bitPeriodUs = 1e3 / p.pulseFreqKHz;
+        const frameMs = bitPeriodUs * p.bitsPerFrame / 1000;
+        const periodMs = 1000 / p.framesPerS;
+        $('calcBitPeriod').innerText = bitPeriodUs.toFixed(0);
+        $('protocolInfo').innerText =
+            `Frame: ${p.bitsPerFrame} bits = ${frameMs.toFixed(1)} ms &bull; period: ${periodMs.toFixed(1)} ms &bull; ${(p.bitsPerFrame * p.framesPerS).toLocaleString()} pulses/s`;
+
+        // Divergence breakdown readout (geometric vs diffraction per axis)
+        $('divInfo').innerText =
+            `θ_out slow ${tx.divOutSlowMrad.toFixed(2)} mrad (geom ${tx.divGeomSlowMrad.toFixed(2)} + diffr ${tx.divDiffSlowMrad.toFixed(2)}) &bull; ` +
+            `fast ${tx.divOutFastMrad.toFixed(2)} mrad (geom ${tx.divGeomFastMrad.toFixed(2)} + diffr ${tx.divDiffFastMrad.toFixed(2)})`;
+
         const dutyPct = tx.dutyCycle * 100;
         $('calcDutyCycle').innerText = `${dutyPct.toFixed(4)}%`;
         if (tx.dutyCycle > C.DIODE.MAX_DUTY_CYCLE) {
@@ -306,6 +341,9 @@
 
         // ---- Safety panel -------------------------------------------------
         renderSafetyPanel(p, tx, { safetyNormal, safetyFault, safetyWorst, safetyView, worstIsFault }, solver, nohd);
+
+        // ---- RX electronics chain -----------------------------------------
+        renderChain(p, rx);
 
         // ---- Canvas state -------------------------------------------------
         simState = {
@@ -396,6 +434,42 @@
             </tr>`).join('');
     }
 
+    // ------------------------------------------------------------------
+    // RX electronics chain rendering
+    // ------------------------------------------------------------------
+    function fmtCurrent(a) {
+        if (a >= 1e-3) return `${(a * 1e3).toFixed(2)} mA`;
+        if (a >= 1e-6) return `${(a * 1e6).toFixed(2)} µA`;
+        return `${(a * 1e9).toFixed(1)} nA`;
+    }
+
+    function renderChain(p, rx) {
+        const chain = Sim.Receiver.evalChain(p, rx);
+        const gainTxt = rx.agcActive
+            ? `AGC: ${rx.gainUsed.toFixed(0)} Ω`
+            : `manual: ${rx.gainUsed.toFixed(0)} Ω`;
+
+        const stages = [
+            { icon: '📷', name: 'Photodiode', lines: [`I_sig ${fmtCurrent(rx.iSignal)}`, `I_sun ${fmtCurrent(rx.iSolar)} DC`], ok: true },
+            { icon: '🔁', name: 'AGC + TIA', lines: [gainTxt, `V_sig ${rx.vSignal.toFixed(3)} V`, `V_sun ${rx.vSolarTIA.toFixed(2)} V DC`], ok: !chain.clipping },
+            { icon: '⚖️', name: 'Comparator', lines: [`thr ${(chain.threshV * 1000).toFixed(1)} mV`, `margin ${chain.marginDb >= 0 ? '+' : ''}${chain.marginDb.toFixed(1)} dB`], ok: chain.detectOk },
+            { icon: '⏱️', name: 'Monostable', lines: [`in ${p.pulseWidthNs} ns`, `out ${chain.monoOutUs.toFixed(0)} µs`], ok: true },
+            { icon: '💻', name: 'MCU', lines: [`frame ${p.bitsPerFrame} bit`, `@ ${p.pulseFreqKHz} kHz`], ok: chain.clean }
+        ];
+
+        $('chainFlow').innerHTML = stages.map((s, i) => `
+            <div class="chain-stage ${s.ok ? 'ok' : 'bad'}">
+                <div class="chain-head">${s.icon} ${s.name}</div>
+                ${s.lines.map(l => `<div class="chain-line">${l}</div>`).join('')}
+            </div>${i < stages.length - 1 ? '<div class="chain-arrow">→</div>' : ''}`).join('');
+
+        const verdict = $('chainVerdict');
+        verdict.innerText = chain.clean ? 'CLEAN' : 'NOT CLEAN';
+        verdict.className = `class-badge ${chain.clean ? 'class-ok' : 'class-bad'}`;
+
+        $('chainReasons').innerText = chain.reasons.length ? '⚠️ ' + chain.reasons.join(' • ') : '';
+    }
+
     /** Max distance where SNR ≥ minSnr with power clamped to the Class-1 limit. */
     function maxSafeDistance(p, tx, worstRatio) {
         const scale = Math.min(1, 1 / worstRatio);
@@ -412,28 +486,31 @@
     // Time-series charts (one 65-bit frame)
     // ------------------------------------------------------------------
     function updateTimeSeriesCharts(p, rx) {
+        const frame = genFrame(p.bitsPerFrame);
         const bitPeriodS = 1 / (p.pulseFreqKHz * 1e3);
-        const frameS = bitPeriodS * (DATA_FRAME.length + 2);
-        const pulseS = p.pulseWidthNs * 1e-9;
-        const riseS = p.riseTimeNs * 1e-9;
+        const frameS = bitPeriodS * (frame.length + 2);
+        // Pulse width exaggerated for display when pulses would be sub-pixel
+        const dispPulseS = Math.max(p.pulseWidthNs * 1e-9, bitPeriodS * 0.03);
+        const riseS = Math.min(p.riseTimeNs * 1e-9, dispPulseS / 2);
 
         const nSamples = 700;
         const dt = frameS / nSamples;
+        const useMs = frameS > 2e-3;
         const labels = [], rawData = [], filtData = [], satData = [];
 
         for (let i = 0; i <= nSamples; i++) {
             const t = i * dt;
-            labels.push(+(t * 1e6).toFixed(2)); // µs
+            labels.push(+(useMs ? t * 1e3 : t * 1e6).toFixed(2));
             satData.push(C.DETECTOR.SYSTEM_VOLTAGE_LIMIT_V);
 
             const noise = (Math.random() - 0.5) * rx.vNoiseRMS * 3;
             const bitIdx = Math.floor(t / bitPeriodS) - 1;
             let amp = 0;
-            if (isShooting && bitIdx >= 0 && bitIdx < DATA_FRAME.length && DATA_FRAME[bitIdx] === 1) {
+            if (isShooting && bitIdx >= 0 && bitIdx < frame.length && frame[bitIdx] === 1) {
                 const tb = t % bitPeriodS;
                 if (tb < riseS) amp = rx.vSignal * (tb / riseS);
-                else if (tb < pulseS) amp = rx.vSignal;
-                else if (tb < pulseS + riseS) amp = rx.vSignal * (1 - (tb - pulseS) / riseS);
+                else if (tb < dispPulseS) amp = rx.vSignal;
+                else if (tb < dispPulseS + riseS) amp = rx.vSignal * (1 - (tb - dispPulseS) / riseS);
             }
 
             let vRaw = rx.vSolarTIA + amp + noise;
@@ -453,6 +530,8 @@
             filtData.push(vFilt);
         }
 
+        rawChart.options.scales.x.title.text = useMs ? 'Time (ms)' : 'Time (µs)';
+        filteredChart.options.scales.x.title.text = useMs ? 'Time (ms)' : 'Time (µs)';
         rawChart.options.scales.y.max = Math.max(C.DETECTOR.SYSTEM_VOLTAGE_LIMIT_V + 0.5, (rx.vSolarTIA + rx.vSignal) * 1.3, 1);
         filteredChart.options.scales.y.max = Math.max(1, (rx.vSignal + rx.vNoiseRMS * 3) * 1.4);
 
@@ -657,11 +736,12 @@
         document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
 
         const base = {
-            driveCurrent: '16.0', pulseWidth: '100', pulseFreq: '500', riseTime: '2',
+            driveCurrent: '8.0', pulseWidth: '100', pulseFreq: '3.3', pulseFreqNum: '3.3', riseTime: '2',
             emitterWidth: '200', emitterHeight: '2.0', rawDivSlow: '12.0', rawDivFast: '25.0',
             lensDiameterTx: '18', lensTransmission: '95', lensDiameterRx: '5',
             tiaGain: '100', acCoupling: 'after_tia', sensorFilter: '370',
-            weatherPreset: 'clear', solarIrradiance: '0.8'
+            weatherPreset: 'clear', solarIrradiance: '0.8',
+            bitsPerFrame: '65', framesPerS: '17', agcMode: 'manual', compThresh: '50', monoStretch: '10'
         };
 
         if (name === '100mm') {
@@ -706,7 +786,7 @@
         const sF = p.faultMode === 'normal' ? sN : Sim.Safety.classify(pFault, txFault);
         const worst = sF.worstRatio > sN.worstRatio ? sF : sN;
         const solver = Sim.Safety.solveMaxClass1(p, tx, worst);
-        inputs.driveCurrent.value = Math.max(1, solver.maxCurrentA).toFixed(1);
+        inputs.driveCurrent.value = Math.min(10, Math.max(0.1, solver.maxCurrentA)).toFixed(1);
         updateSimulation();
     }
 
@@ -765,6 +845,20 @@
     inputs.weatherPreset.addEventListener('change', () => {
         $('ctrlVisibility').style.display = inputs.weatherPreset.value === 'custom' ? 'block' : 'none';
         updateSimulation();
+    });
+
+    // Bit-rate slider ↔ numeric input sync
+    inputs.pulseFreq.addEventListener('input', () => { inputs.pulseFreqNum.value = inputs.pulseFreq.value; });
+    inputs.pulseFreqNum.addEventListener('input', () => {
+        const v = Math.min(10, Math.max(0.5, parseFloat(inputs.pulseFreqNum.value) || 0.5));
+        inputs.pulseFreq.value = v;
+    });
+
+    // AGC mode toggle: hide manual gain slider, show AGC target
+    inputs.agcMode.addEventListener('change', () => {
+        const agc = inputs.agcMode.value === 'agc';
+        $('ctrlTiaGain').style.display = agc ? 'none' : 'block';
+        $('ctrlAgcTarget').style.display = agc ? 'block' : 'none';
     });
 
     Object.values(inputs).forEach(input => {

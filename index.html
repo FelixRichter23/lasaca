@@ -39,9 +39,9 @@
                 <h3>1. Laser Diode (SPL PL90AT03)</h3>
 
                 <div class="control">
-                    <label for="driveCurrent">Drive Current IF (A): <span id="driveCurrentVal">16.0</span></label>
-                    <input type="range" id="driveCurrent" min="1.0" max="25.0" value="16.0" step="0.5">
-                    <small>Threshold Ith = 0.3 A &bull; Yields ~<span id="calcPeakPowerTxt">51.0</span> W Peak</small>
+                    <label for="driveCurrent">Drive Current IF (A): <span id="driveCurrentVal">8.0</span></label>
+                    <input type="range" id="driveCurrent" min="0.1" max="10.0" value="8.0" step="0.1">
+                    <small>Threshold Ith = 0.3 A &bull; Yields ~<span id="calcPeakPowerTxt">25.0</span> W Peak</small>
                 </div>
 
                 <div class="control">
@@ -51,10 +51,25 @@
                 </div>
 
                 <div class="control">
-                    <label for="pulseFreq">Bit Rate within Frame (kHz): <span id="pulseFreqVal">500</span></label>
-                    <input type="range" id="pulseFreq" min="10" max="2000" value="500" step="10">
-                    <small>Protocol: 65 bits/shot frame &bull; max 17 shots/s</small>
+                    <label for="pulseFreq">Bit Rate (kHz): <span id="pulseFreqVal">3.3</span></label>
+                    <div class="slider-num-row">
+                        <input type="range" id="pulseFreq" min="0.5" max="10.0" value="3.3" step="0.1">
+                        <input type="number" id="pulseFreqNum" class="num-input" min="0.5" max="10" step="0.1" value="3.3">
+                    </div>
+                    <small>Bit period: <span id="calcBitPeriod">303</span> µs</small>
                 </div>
+
+                <div class="control-row">
+                    <div class="control half">
+                        <label for="bitsPerFrame">Pulses / Frame:</label>
+                        <input type="number" id="bitsPerFrame" class="num-input" min="1" max="256" step="1" value="65">
+                    </div>
+                    <div class="control half">
+                        <label for="framesPerS">Frames / s (max):</label>
+                        <input type="number" id="framesPerS" class="num-input" min="1" max="50" step="1" value="17">
+                    </div>
+                </div>
+                <div class="info-line" id="protocolInfo">Frame: 19.7 ms &bull; period: 58.8 ms &bull; 1105 pulses/s</div>
 
                 <div class="duty-cycle-badge" id="dutyCycleBadge">
                     <span>Duty Cycle: <strong id="calcDutyCycle">0.0111%</strong></span>
@@ -135,7 +150,23 @@
                         <label for="focalFast">Fast Axis Focal Length (mm): <span id="focalFastVal">20</span></label>
                         <input type="range" id="focalFast" min="5" max="100" value="20" step="1">
                     </div>
+
+                    <div class="control" id="ctrlDivManual" style="display:none;">
+                        <label>Output Divergence (mrad):</label>
+                        <div class="control-row">
+                            <div class="control half">
+                                <input type="number" id="manualDivSlow" class="num-input" min="0.1" max="100" step="0.1" value="2.5">
+                                <small>slow axis</small>
+                            </div>
+                            <div class="control half">
+                                <input type="number" id="manualDivFast" class="num-input" min="0.1" max="100" step="0.1" value="10">
+                                <small>fast axis</small>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+
+                <div class="info-line" id="divInfo">θ_out: 2.00 × 3.28 mrad</div>
 
                 <div class="control">
                     <label for="lensTransmission">Lens AR Coating Trans. (%): <span id="lensTransmissionVal">95</span></label>
@@ -213,8 +244,33 @@
                 </div>
 
                 <div class="control">
+                    <label for="agcMode">Gain Control:</label>
+                    <select id="agcMode" class="custom-select">
+                        <option value="manual" selected>Manual TIA Gain (slider)</option>
+                        <option value="agc">AGC — Automatic Gain Control</option>
+                    </select>
+                </div>
+
+                <div class="control" id="ctrlTiaGain">
                     <label for="tiaGain">TIA Gain (Ω): <span id="tiaGainVal">100</span></label>
                     <input type="range" id="tiaGain" min="10" max="10000" value="100" step="10">
+                </div>
+
+                <div class="control" id="ctrlAgcTarget" style="display:none;">
+                    <label for="agcTarget">AGC Target Level (V): <span id="agcTargetVal">1.0</span></label>
+                    <input type="range" id="agcTarget" min="0.1" max="4.5" value="1.0" step="0.1">
+                    <small>AGC sets gain so the pulse peak reaches this level</small>
+                </div>
+
+                <div class="control-row">
+                    <div class="control half">
+                        <label for="compThresh">Comparator Thr. (mV):</label>
+                        <input type="number" id="compThresh" class="num-input" min="1" max="2000" step="1" value="50">
+                    </div>
+                    <div class="control half">
+                        <label for="monoStretch">Monostable (µs):</label>
+                        <input type="number" id="monoStretch" class="num-input" min="1" max="1000" step="1" value="10">
+                    </div>
                 </div>
             </div>
 
@@ -432,7 +488,7 @@
                 <!-- Photodiode Output (Raw) -->
                 <div class="panel glass-panel chart-panel raw-panel">
                     <h3><span class="icon">⚡</span> Raw Photodiode Output (DC Coupled)</h3>
-                    <p class="desc">Raw voltage from detector, one full 65-bit frame. Red line marks the 5V op-amp saturation ceiling.</p>
+                    <p class="desc">Raw voltage from detector, one full data frame (pulse width exaggerated for visibility). Red line marks the 5V op-amp saturation ceiling.</p>
                     <div class="chart-container">
                         <canvas id="rawChart"></canvas>
                     </div>
@@ -445,6 +501,17 @@
                     <div class="chart-container">
                         <canvas id="filteredChart"></canvas>
                     </div>
+                </div>
+
+                <!-- RX Electronics Chain Panel -->
+                <div class="panel glass-panel chain-panel">
+                    <div class="panel-header-flex">
+                        <h3><span class="icon">🔌</span> Receiver Electronics Chain</h3>
+                        <span class="class-badge" id="chainVerdict">CLEAN</span>
+                    </div>
+                    <p class="desc">Photocurrent → AGC/TIA → Comparator → Monostable pulse stretcher → MCU. Checks whether the incoming pulse can be measured cleanly.</p>
+                    <div class="chain-flow" id="chainFlow"></div>
+                    <div class="chain-reasons" id="chainReasons"></div>
                 </div>
 
                 <!-- SNR vs Distance Graph -->

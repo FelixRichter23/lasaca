@@ -45,10 +45,18 @@ Sim.Safety = (function () {
      *
      * Grouping depends on α, so this is evaluated per candidate α in classify().
      */
+    /** Protocol values (adjustable in UI; constants are fallbacks). */
+    function protocol(p) {
+        const bitsPerFrame = p.bitsPerFrame || PROT.BITS_PER_FRAME;
+        const framesPerS = p.framesPerS || PROT.MAX_FRAMES_PER_S;
+        return { bitsPerFrame, framesPerS, pulsesPerS: bitsPerFrame * framesPerS };
+    }
+
     function effectivePulse(p, alphaMrad) {
+        const proto = protocol(p);
         const tPulse = p.pulseWidthNs * 1e-9;
         const bitPeriod = 1 / (p.pulseFreqKHz * 1e3);
-        const frameDur = bitPeriod * PROT.BITS_PER_FRAME;
+        const frameDur = bitPeriod * proto.bitsPerFrame;
 
         // Step 1: Ti merging
         let tEff, eFactor, merged;
@@ -66,13 +74,13 @@ Sim.Safety = (function () {
         if (alphaCapped > 5 && frameDur > IEC.TI_S && frameDur <= 0.25 && bitPeriod < tcrit) {
             grouped = true;
             tEff = frameDur;
-            eFactor = PROT.BITS_PER_FRAME; // conservative: all bits are pulses
+            eFactor = proto.bitsPerFrame; // conservative: all bits are pulses
         }
 
         // Groups per second (frame rate) vs effective pulses per second
         const rateHz = grouped
-            ? PROT.MAX_FRAMES_PER_S
-            : PROT.MAX_PULSES_PER_S / eFactor;
+            ? proto.framesPerS
+            : proto.pulsesPerS / eFactor;
 
         return { tEff, eFactor, merged, grouped, tcrit, frameDur, bitPeriod, rateHz };
     }
@@ -115,15 +123,16 @@ Sim.Safety = (function () {
      */
     function evalCondition(p, tx, cond, alphaMrad, ep, c5Ctx, measuredAvgW) {
         const lambda = tx.lambdaNm;
+        const proto = protocol(p);
         const tPulse = p.pulseWidthNs * 1e-9;
-        const duty = tPulse * PROT.MAX_PULSES_PER_S;
+        const duty = tPulse * proto.pulsesPerS;
 
         const measured = measuredAvgW != null && measuredAvgW > 0;
         const capture = measured ? null : conditionCapture(p, tx, cond);
         const aePeakW = measured ? measuredAvgW / Math.max(duty, 1e-15) : tx.pTxEffW * capture;
 
         const ePulseEffJ = aePeakW * tPulse * ep.eFactor;      // effective pulse energy
-        const pAvgAccW = measured ? measuredAvgW : aePeakW * tPulse * PROT.MAX_PULSES_PER_S;
+        const pAvgAccW = measured ? measuredAvgW : aePeakW * tPulse * proto.pulsesPerS;
 
         // Criterion 1: single (effective) pulse vs AEL(t_eff)
         const aelSingleJ = c5Ctx.simplified

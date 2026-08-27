@@ -50,13 +50,21 @@ Sim.Receiver = (function () {
         const iSignal = rxPowerW * R;
         const iSolar = solarPowerW * R;
 
-        const vSignal = iSignal * p.gain;
-        const vSolarRaw = iSolar * p.gain;
+        // TIA gain: manual slider or AGC (keeps V_signal at the target level)
+        let gain = p.gain;
+        let agcActive = false;
+        if (p.agcOn && iSignal > 1e-15) {
+            gain = Math.min(1e6, Math.max(10, (p.agcTargetV || 1) / iSignal));
+            agcActive = true;
+        }
+
+        const vSignal = iSignal * gain;
+        const vSolarRaw = iSolar * gain;
         const vSolarTIA = p.acCoupling === 'before_tia' ? 0 : vSolarRaw;
 
         const bw = noiseBandwidthHz(p.riseTimeNs);
         const iNoiseRMS = Math.sqrt(2 * Sim.Constants.Q_E * iSolar * bw);
-        const vNoiseRMS = iNoiseRMS * p.gain;
+        const vNoiseRMS = iNoiseRMS * gain;
 
         const snrLinear = vSignal / (vNoiseRMS || 1e-5);
         const snrDb = 20 * Math.log10(Math.max(snrLinear, 1e-9));
@@ -71,6 +79,8 @@ Sim.Receiver = (function () {
             solarPowerW,
             iSignal,
             iSolar,
+            gainUsed: gain,
+            agcActive,
             vSignal,
             vSolarRaw,
             vSolarTIA,
@@ -80,5 +90,41 @@ Sim.Receiver = (function () {
         };
     }
 
-    return { noiseBandwidthHz, linkBudget };
+    /**
+     * Evaluate the receiver electronics chain:
+     * photodiode → AGC/TIA → comparator → monostable pulse stretcher → MCU.
+     * Answers: "how much photocurrent arrives, and can it be measured cleanly?"
+     */
+    function evalChain(p, rx) {
+        const vLimit = DET.SYSTEM_VOLTAGE_LIMIT_V;
+
+        // Comparator: pulse must clear both the threshold and 3× RMS noise
+        const threshV = Math.max((p.compThreshMv || 50) / 1000, 3 * rx.vNoiseRMS);
+        const detectOk = rx.vSignal >= threshV;
+        const marginDb = 20 * Math.log10(Math.max(rx.vSignal, 1e-12) / threshV);
+
+        // Saturation / clipping at the TIA output (solar DC + pulse)
+        const clipping = (rx.vSolarTIA + rx.vSignal) > vLimit;
+
+        // Monostable pulse stretcher: stretches the ns pulse for the MCU
+        const monoOutUs = Math.max(p.pulseWidthNs / 1000, p.monoStretchUs || 10);
+
+        const clean = detectOk && !clipping;
+        const reasons = [];
+        if (!detectOk) reasons.push('signal below comparator threshold / 3×noise');
+        if (clipping) reasons.push('TIA clipping (solar DC + pulse > 5 V) — use AC coupling before TIA or lower gain');
+        if (rx.agcActive) reasons.push('AGC active: gain auto-adjusted');
+
+        return {
+            threshV,
+            detectOk,
+            marginDb,
+            clipping,
+            monoOutUs,
+            clean,
+            reasons
+        };
+    }
+
+    return { noiseBandwidthHz, linkBudget, evalChain };
 })();

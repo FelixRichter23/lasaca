@@ -50,12 +50,14 @@ Sim.Constants = (function () {
     };
 
     // ------------------------------------------------------------------
-    // Data transmission protocol (lasertag)
+    // Data transmission protocol (lasertag) — DEFAULTS
+    // Actual values are user-adjustable in the UI (frame length ~60 ms,
+    // 65 pulses/frame, 100 ns pulses, ~300 µs bit period) and passed via
+    // the parameter object; these constants serve as fallbacks.
     // ------------------------------------------------------------------
-    // Safety-relevant: average pulse count, N for C5, average power.
     C.PROTOCOL = {
-        BITS_PER_FRAME: 65,              // pulses per shot
-        MAX_FRAMES_PER_S: 17,            // max shots per second
+        BITS_PER_FRAME: 65,              // pulses per shot frame
+        MAX_FRAMES_PER_S: 17,            // max shots per second (frame period ≈ 60 ms)
         // max average pulse rate [Hz]
         get MAX_PULSES_PER_S() { return this.BITS_PER_FRAME * this.MAX_FRAMES_PER_S; }
     };

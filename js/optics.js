@@ -119,10 +119,10 @@ Sim.Optics = (function () {
             divDiffSlow = (4 * lambdaM) / (Math.PI * apertSlow);
             divDiffFast = (4 * lambdaM) / (Math.PI * apertFast);
 
-        } else { // manual override
+        } else { // manual divergence override (user-specified, mrad)
             capture = 0.95;
-            divGeomSlow = 2.5e-3;
-            divGeomFast = 10e-3;
+            divGeomSlow = (p.manualDivSlowMrad || 2.5) * 1e-3;
+            divGeomFast = (p.manualDivFastMrad || 10) * 1e-3;
             fEffSlow = fEffFast = 0; // α not meaningful in manual mode
         }
 
@@ -131,14 +131,15 @@ Sim.Optics = (function () {
 
         // Apparent source angular subtense per axis [mrad] — purely geometric
         // (diffraction does not enlarge the apparent source image).
-        const alphaSlowMrad = fEffSlow > 0 ? (p.emitterWum * 1e-3) / fEffSlow * 1000 : 2.5;
-        const alphaFastMrad = fEffFast > 0 ? (p.emitterHum * 1e-3) / fEffFast * 1000 : 10;
+        const alphaSlowMrad = fEffSlow > 0 ? (p.emitterWum * 1e-3) / fEffSlow * 1000 : (p.manualDivSlowMrad || 2.5);
+        const alphaFastMrad = fEffFast > 0 ? (p.emitterHum * 1e-3) / fEffFast * 1000 : (p.manualDivFastMrad || 10);
 
         const pTxEffW = peakW * capture * (p.tArPct / 100);
 
-        // Protocol duty cycle: 65 pulses/frame · 17 frames/s
+        // Protocol duty cycle from the actual (adjustable) pulse-train settings
         const P = Sim.Constants.PROTOCOL;
-        const dutyCycle = (p.pulseWidthNs * 1e-9) * P.MAX_PULSES_PER_S;
+        const pulsesPerS = (p.bitsPerFrame || P.BITS_PER_FRAME) * (p.framesPerS || P.MAX_FRAMES_PER_S);
+        const dutyCycle = (p.pulseWidthNs * 1e-9) * pulsesPerS;
 
         return {
             lambdaNm,
@@ -149,6 +150,8 @@ Sim.Optics = (function () {
             divOutFastMrad: divFast * 1000,
             divGeomSlowMrad: divGeomSlow * 1000,
             divGeomFastMrad: divGeomFast * 1000,
+            divDiffSlowMrad: divDiffSlow * 1000,
+            divDiffFastMrad: divDiffFast * 1000,
             beamDiaLensSlowMm: beamLensSlowMm,
             beamDiaLensFastMm: beamLensFastMm,
             alphaSlowMrad,
