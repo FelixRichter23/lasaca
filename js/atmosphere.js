@@ -14,12 +14,12 @@ Sim.Atmosphere = (function () {
     'use strict';
 
     const WEATHER_PRESETS = {
-        clear:     { label: '☀️ Clear (23 km)',        visibilityKm: 23 },
-        haze:      { label: '🌤 Haze (10 km)',         visibilityKm: 10 },
-        rain:      { label: '🌧 Rain (4 km)',          visibilityKm: 4 },
-        lightfog:  { label: '🌫 Light Fog (2 km)',     visibilityKm: 2 },
-        fog:       { label: '🌫 Fog (500 m)',          visibilityKm: 0.5 },
-        heavyfog:  { label: '🌁 Heavy Fog (200 m)',    visibilityKm: 0.2 }
+        clear:     { label: 'Clear (23 km)',        visibilityKm: 23 },
+        haze:      { label: 'Haze (10 km)',         visibilityKm: 10 },
+        rain:      { label: 'Rain (4 km)',          visibilityKm: 4 },
+        lightfog:  { label: 'Light Fog (2 km)',     visibilityKm: 2 },
+        fog:       { label: 'Fog (500 m)',          visibilityKm: 0.5 },
+        heavyfog:  { label: 'Heavy Fog (200 m)',    visibilityKm: 0.2 }
     };
 
     function kimQ(visibilityKm) {

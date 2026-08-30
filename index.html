@@ -23,14 +23,14 @@
 
             <!-- Quick Presets -->
             <div class="presets-section">
-                <span class="preset-title">⚡ Quick Presets</span>
+                <span class="preset-title">Quick Presets</span>
                 <div class="preset-buttons">
-                    <button class="preset-btn" id="preset100mm" title="100mm f, 18mm diameter single lens with 200µm emitter">🎯 100mm/18mm Single</button>
-                    <button class="preset-btn active" id="presetFAC100mm" title="FAC pre-lens (1mm f) + 100mm f collimator">⚡ FAC + 100mm Lens</button>
-                    <button class="preset-btn" id="presetAnamorphic" title="Dual Cylindrical Lens combination for circular beam">📐 Anamorphic Pair</button>
-                    <button class="preset-btn" id="presetDatasheet" title="OSRAM SPL PL90AT03 (110µm emitter) + BPW 34 FAS defaults">📄 Datasheet Defaults</button>
-                    <button class="preset-btn preset-safe" id="presetClass1" title="Applies the Class-1 solver: maximum drive current that still complies with IEC 60825-1 Class 1">✅ Class-1 Safe Max</button>
-                    <button class="preset-btn" id="presetNight" title="Night operation: clear air, no solar background">🌙 Night Mode</button>
+                    <button class="preset-btn" id="preset100mm" title="100mm f, 18mm diameter single lens with 200µm emitter">100mm/18mm Single</button>
+                    <button class="preset-btn active" id="presetFAC100mm" title="FAC pre-lens (1mm f) + 100mm f collimator">FAC + 100mm Lens</button>
+                    <button class="preset-btn" id="presetAnamorphic" title="Dual Cylindrical Lens combination for circular beam">Anamorphic Pair</button>
+                    <button class="preset-btn" id="presetDatasheet" title="OSRAM SPL PL90AT03 (110µm emitter) + BPW 34 FAS defaults">Datasheet Defaults</button>
+                    <button class="preset-btn preset-safe" id="presetClass1" title="Applies the Class-1 solver: maximum drive current that still complies with IEC 60825-1 Class 1">Class-1 Safe Max</button>
+                    <button class="preset-btn" id="presetNight" title="Night operation: clear air, no solar background">Night Mode</button>
                 </div>
             </div>
 
@@ -73,7 +73,7 @@
 
                 <div class="duty-cycle-badge" id="dutyCycleBadge">
                     <span>Duty Cycle: <strong id="calcDutyCycle">0.0111%</strong></span>
-                    <span class="status-indicator" id="dutyCycleStatus">✅ OK (&le; 0.1% max)</span>
+                    <span class="status-indicator" id="dutyCycleStatus">OK (&le; 0.1% max)</span>
                 </div>
 
                 <div class="control">
@@ -186,13 +186,13 @@
                 <div class="control">
                     <label for="weatherPreset">Weather (Visibility):</label>
                     <select id="weatherPreset" class="custom-select">
-                        <option value="clear" selected>☀️ Clear (23 km)</option>
-                        <option value="haze">🌤 Haze (10 km)</option>
-                        <option value="rain">🌧 Rain (4 km)</option>
-                        <option value="lightfog">🌫 Light Fog (2 km)</option>
-                        <option value="fog">🌫 Fog (500 m)</option>
-                        <option value="heavyfog">🌁 Heavy Fog (200 m)</option>
-                        <option value="custom">⚙️ Custom (slider below)</option>
+                        <option value="clear" selected>Clear (23 km)</option>
+                        <option value="haze">Haze (10 km)</option>
+                        <option value="rain">Rain (4 km)</option>
+                        <option value="lightfog">Light Fog (2 km)</option>
+                        <option value="fog">Fog (500 m)</option>
+                        <option value="heavyfog">Heavy Fog (200 m)</option>
+                        <option value="custom">Custom (slider below)</option>
                     </select>
                 </div>
 
@@ -276,7 +276,7 @@
 
             <!-- 5. Laser Safety (IEC 60825-1) -->
             <div class="control-group safety-group">
-                <h3>5. 🛡️ Safety (IEC 60825-1:2014)</h3>
+                <h3>5. Safety (IEC 60825-1:2014)</h3>
 
                 <div class="control">
                     <label for="timeBase">Classification Time Base:</label>
@@ -310,7 +310,27 @@
                     <small>Threshold for "max safe distance" calculation</small>
                 </div>
 
-                <button id="btnClass1Max" class="solver-btn">🔒 Set Max Class-1 Drive Current</button>
+                <button id="btnAutoSolve" class="solver-btn" title="Searches all compatible optics/current combinations and applies the safest Class-1 setup that still reliably closes the link at the selected distance and weather">Auto: Find Safest Class-1 Setup</button>
+                <div id="autoSolveStatus" class="auto-solve-status"></div>
+            </div>
+
+            <!-- 6. Saved Settings -->
+            <div class="control-group">
+                <h3>6. Saved Settings</h3>
+                <div class="save-row">
+                    <input type="text" id="saveName" placeholder="Name (optional)…" maxlength="40">
+                    <button id="btnSaveConfig" class="save-btn">Save</button>
+                </div>
+                <div id="savedList" class="saved-list"></div>
+                <div class="share-row">
+                    <input type="text" id="shareCode" placeholder="Share code appears here…" readonly>
+                    <button id="btnShareCurrent" class="save-btn" title="Export the current (unsaved) settings as a share code">Export</button>
+                </div>
+                <div class="import-row">
+                    <input type="text" id="importCode" placeholder="Paste a share code to import…">
+                    <button id="btnImportConfig" class="save-btn">Import</button>
+                </div>
+                <div id="shareStatus" class="share-status"></div>
             </div>
 
             <!-- Output Summary Box -->
@@ -341,7 +361,7 @@
                 </div>
             </div>
 
-            <button id="btnShoot" class="shoot-btn">🔥 Transmit Data Frame (65 bit)</button>
+            <button id="btnShoot" class="shoot-btn">Transmit Data Frame (65 bit)</button>
         </aside>
 
         <!-- Main Content Area -->
@@ -359,14 +379,14 @@
                 <!-- Safety Classification Panel -->
                 <div class="panel glass-panel safety-panel" id="safetyPanel">
                     <div class="panel-header-flex">
-                        <h3><span class="icon">🛡️</span> IEC 60825-1:2014 Classification</h3>
+                        <h3>IEC 60825-1:2014 Classification</h3>
                         <span class="class-badge" id="classBadge">CLASS 1</span>
                     </div>
                     <p class="desc">Accessible emission vs. AEL for all three pulsed criteria (4.3 f)) under all measurement conditions. Extended-source analysis per ISH1:2017 (α = arithmetic mean of axes). Distances referenced to the emitting chip facet.</p>
                     <div class="class-detail" id="classDetail"></div>
 
                     <details class="meas-details">
-                        <summary>🧪 Lab override — measured avg. power through aperture (mW, optional)</summary>
+                        <summary>Lab override — measured avg. power through aperture (mW, optional)</summary>
                         <div class="meas-row">
                             <label>Cond. 1 <input type="number" id="measCond1" class="meas-input" min="0" step="any" placeholder="—"></label>
                             <label>Cond. 2 <input type="number" id="measCond2" class="meas-input" min="0" step="any" placeholder="—"></label>
@@ -422,7 +442,7 @@
 
                 <!-- Math Explainer Panel -->
                 <div class="panel glass-panel math-panel collapsed">
-                    <h3><span class="icon">📐</span> The Complete Physics & Optical Budget (Step-by-Step)</h3>
+                    <h3>The Complete Physics & Optical Budget (Step-by-Step)</h3>
                     <div class="math-steps">
                         <div class="step" id="stepOptics">
                             <h4>1. TX Optics & Aperture Capture</h4>
@@ -464,7 +484,7 @@
                 <!-- Live Ray Tracer & Optics Schematic Panel -->
                 <div class="panel glass-panel optics-panel">
                     <div class="panel-header-flex">
-                        <h3><span class="icon">🔬</span> Transmitter Optical Train & Ray Tracing</h3>
+                        <h3>Transmitter Optical Train & Ray Tracing</h3>
                         <span class="lens-badge" id="opticsBadge">FAC + Collimator</span>
                     </div>
                     <p class="desc">Interactive optical ray path. Green/Cyan rays are captured and collimated by the lens; Red dashed rays represent light lost due to aperture clipping.</p>
@@ -476,7 +496,7 @@
                 <!-- Target Spot Profile Panel -->
                 <div class="panel glass-panel spot-panel">
                     <div class="panel-header-flex">
-                        <h3><span class="icon">🎯</span> Target Spot Profile (at <span id="lblDistSpot">200</span> m)</h3>
+                        <h3>Target Spot Profile (at <span id="lblDistSpot">200</span> m)</h3>
                         <span class="lens-badge" id="spotAspectBadge">Aspect Ratio: 1.6:1</span>
                     </div>
                     <p class="desc">Laser beam cross-section profile on target. The yellow circle represents the size of your 5mm receiver lens for scale comparison.</p>
@@ -487,7 +507,7 @@
 
                 <!-- Photodiode Output (Raw) -->
                 <div class="panel glass-panel chart-panel raw-panel">
-                    <h3><span class="icon">⚡</span> Raw Photodiode Output (DC Coupled)</h3>
+                    <h3>Raw Photodiode Output (DC Coupled)</h3>
                     <p class="desc">Raw voltage from detector, one full data frame (pulse width exaggerated for visibility). Red line marks the 5V op-amp saturation ceiling.</p>
                     <div class="chart-container">
                         <canvas id="rawChart"></canvas>
@@ -496,7 +516,7 @@
 
                 <!-- Final Signal Output -->
                 <div class="panel glass-panel chart-panel filter-panel">
-                    <h3><span class="icon">🎛️</span> Final Signal (Post-Processing)</h3>
+                    <h3>Final Signal (Post-Processing)</h3>
                     <p class="desc">The final recovered data frame after optical & electronic filtering.</p>
                     <div class="chart-container">
                         <canvas id="filteredChart"></canvas>
@@ -506,7 +526,7 @@
                 <!-- RX Electronics Chain Panel -->
                 <div class="panel glass-panel chain-panel">
                     <div class="panel-header-flex">
-                        <h3><span class="icon">🔌</span> Receiver Electronics Chain</h3>
+                        <h3>Receiver Electronics Chain</h3>
                         <span class="class-badge" id="chainVerdict">CLEAN</span>
                     </div>
                     <p class="desc">Photocurrent → AGC/TIA → Comparator → Monostable pulse stretcher → MCU. Checks whether the incoming pulse can be measured cleanly.</p>
@@ -516,7 +536,7 @@
 
                 <!-- SNR vs Distance Graph -->
                 <div class="panel glass-panel chart-panel snr-panel">
-                    <h3><span class="icon">📊</span> Signal-to-Noise Ratio (SNR) vs Distance</h3>
+                    <h3>Signal-to-Noise Ratio (SNR) vs Distance</h3>
                     <p class="desc">Green: current settings. Yellow: power clamped to the Class-1 limit. Red dot marks your currently selected distance; dashed line is the min. usable SNR.</p>
                     <div class="chart-container">
                         <canvas id="snrChart"></canvas>

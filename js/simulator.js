@@ -283,10 +283,10 @@
         const dutyPct = tx.dutyCycle * 100;
         $('calcDutyCycle').innerText = `${dutyPct.toFixed(4)}%`;
         if (tx.dutyCycle > C.DIODE.MAX_DUTY_CYCLE) {
-            $('dutyCycleStatus').innerText = '⚠️ EXCEEDS 0.1% MAX RATING!';
+            $('dutyCycleStatus').innerText = 'EXCEEDS 0.1% MAX RATING!';
             $('dutyCycleBadge').className = 'duty-cycle-badge warning';
         } else {
-            $('dutyCycleStatus').innerText = '✅ OK (≤ 0.1% max)';
+            $('dutyCycleStatus').innerText = 'OK (≤ 0.1% max)';
             $('dutyCycleBadge').className = 'duty-cycle-badge';
         }
 
@@ -417,7 +417,7 @@
             <div><small>Method</small><strong>${safety.simplified ? 'Default simplified (C6=1, C5=1)' : 'Extended source (ISH1)'}</strong></div>
             <div><small>Time base</small><strong>${p.timeBaseS} s</strong></div>
             <div><small>Effective pulse</small><strong>${epTxt}</strong></div>
-            <div><small>Tcrit / grouping</small><strong>${(ep.tcrit * 1e6).toFixed(1)} µs / ${ep.grouped ? '⚠️ frame grouped' : 'not required'}</strong></div>
+            <div><small>Tcrit / grouping</small><strong>${(ep.tcrit * 1e6).toFixed(1)} µs / ${ep.grouped ? 'frame grouped' : 'not required'}</strong></div>
             <div><small>T2 / eval duration</small><strong>${safety.t2.toFixed(1)} s / ${safety.evalDur.toFixed(1)} s</strong></div>
             <div><small>λ (temp drift)</small><strong>${tx.lambdaNm.toFixed(1)} nm</strong></div>
             <div><small>Protocol rate</small><strong>${PROT.MAX_PULSES_PER_S} pulses/s</strong></div>
@@ -426,7 +426,7 @@
         // Conditions table
         $('safetyTableBody').innerHTML = safety.conditions.map(c => `
             <tr>
-                <td>${c.cond.label}<br><small>${c.measured ? '🧪 measured override' : `capture ${(c.capture * 100).toFixed(1)}%`}</small></td>
+                <td>${c.cond.label}<br><small>${c.measured ? 'measured override' : `capture ${(c.capture * 100).toFixed(1)}%`}</small></td>
                 <td>${c.aePeakW >= 1 ? c.aePeakW.toFixed(2) + ' W' : (c.aePeakW * 1000).toFixed(2) + ' mW'}</td>
                 <td>${fmtRatio(c.crit1.ratio)}</td>
                 <td>${fmtRatio(c.crit2.ratio)}</td>
@@ -450,16 +450,16 @@
             : `manual: ${rx.gainUsed.toFixed(0)} Ω`;
 
         const stages = [
-            { icon: '📷', name: 'Photodiode', lines: [`I_sig ${fmtCurrent(rx.iSignal)}`, `I_sun ${fmtCurrent(rx.iSolar)} DC`], ok: true },
-            { icon: '🔁', name: 'AGC + TIA', lines: [gainTxt, `V_sig ${rx.vSignal.toFixed(3)} V`, `V_sun ${rx.vSolarTIA.toFixed(2)} V DC`], ok: !chain.clipping },
-            { icon: '⚖️', name: 'Comparator', lines: [`thr ${(chain.threshV * 1000).toFixed(1)} mV`, `margin ${chain.marginDb >= 0 ? '+' : ''}${chain.marginDb.toFixed(1)} dB`], ok: chain.detectOk },
-            { icon: '⏱️', name: 'Monostable', lines: [`in ${p.pulseWidthNs} ns`, `out ${chain.monoOutUs.toFixed(0)} µs`], ok: true },
-            { icon: '💻', name: 'MCU', lines: [`frame ${p.bitsPerFrame} bit`, `@ ${p.pulseFreqKHz} kHz`], ok: chain.clean }
+            { name: 'Photodiode', lines: [`I_sig ${fmtCurrent(rx.iSignal)}`, `I_sun ${fmtCurrent(rx.iSolar)} DC`], ok: true },
+            { name: 'AGC + TIA', lines: [gainTxt, `V_sig ${rx.vSignal.toFixed(3)} V`, `V_sun ${rx.vSolarTIA.toFixed(2)} V DC`], ok: !chain.clipping },
+            { name: 'Comparator', lines: [`thr ${(chain.threshV * 1000).toFixed(1)} mV`, `margin ${chain.marginDb >= 0 ? '+' : ''}${chain.marginDb.toFixed(1)} dB`], ok: chain.detectOk },
+            { name: 'Monostable', lines: [`in ${p.pulseWidthNs} ns`, `out ${chain.monoOutUs.toFixed(0)} µs`], ok: true },
+            { name: 'MCU', lines: [`frame ${p.bitsPerFrame} bit`, `@ ${p.pulseFreqKHz} kHz`], ok: chain.clean }
         ];
 
         $('chainFlow').innerHTML = stages.map((s, i) => `
             <div class="chain-stage ${s.ok ? 'ok' : 'bad'}">
-                <div class="chain-head">${s.icon} ${s.name}</div>
+                <div class="chain-head">${s.name}</div>
                 ${s.lines.map(l => `<div class="chain-line">${l}</div>`).join('')}
             </div>${i < stages.length - 1 ? '<div class="chain-arrow">→</div>' : ''}`).join('');
 
@@ -467,7 +467,7 @@
         verdict.innerText = chain.clean ? 'CLEAN' : 'NOT CLEAN';
         verdict.className = `class-badge ${chain.clean ? 'class-ok' : 'class-bad'}`;
 
-        $('chainReasons').innerText = chain.reasons.length ? '⚠️ ' + chain.reasons.join(' • ') : '';
+        $('chainReasons').innerText = chain.reasons.length ? chain.reasons.join(' • ') : '';
     }
 
     /** Max distance where SNR ≥ minSnr with power clamped to the Class-1 limit. */
@@ -791,6 +791,276 @@
     }
 
     // ------------------------------------------------------------------
+    // Auto-solver: grid search over compatible optics presets x drive
+    // current for the safest Class-1 setup that still closes the link
+    // (SNR + clean RX chain) at the selected distance and weather.
+    // ------------------------------------------------------------------
+    const AUTO_OPTICS = [
+        { name: 'FAC + 100mm lens', values: { opticsMode: 'fac', focalMain: '100', focalFac: '1.0', lensDiameterTx: '18' } },
+        { name: '100mm/18mm single lens', values: { opticsMode: 'single', focalMain: '100', lensDiameterTx: '18' } },
+        { name: 'Anamorphic pair', values: { opticsMode: 'anamorphic', focalSlow: '100', focalFast: '20', lensDiameterTx: '25' } },
+        { name: 'Datasheet (110µm emitter, FAC)', values: { opticsMode: 'fac', focalMain: '100', focalFac: '1.0', lensDiameterTx: '18', emitterWidth: '110' } }
+    ];
+
+    function evalAutoCandidate(pBase, opticsValues, iA) {
+        const p = { ...pBase, iForward: iA };
+        if (opticsValues.opticsMode) p.opticsMode = opticsValues.opticsMode;
+        if (opticsValues.focalMain) p.fMainMm = parseFloat(opticsValues.focalMain);
+        if (opticsValues.lensDiameterTx) p.dMainMm = parseFloat(opticsValues.lensDiameterTx);
+        if (opticsValues.focalFac) p.fFacMm = parseFloat(opticsValues.focalFac);
+        if (opticsValues.focalSlow) p.fSlowMm = parseFloat(opticsValues.focalSlow);
+        if (opticsValues.focalFast) p.fFastMm = parseFloat(opticsValues.focalFast);
+        if (opticsValues.emitterWidth) p.emitterWum = parseFloat(opticsValues.emitterWidth);
+
+        const tx = Sim.Optics.computeTxBeam(p);
+        const pFault = { ...p, iForward: effCurrent(p) };
+        const txFault = p.faultMode === 'normal' ? tx : Sim.Optics.computeTxBeam(pFault);
+        const sN = Sim.Safety.classify(p, tx);
+        const sF = p.faultMode === 'normal' ? sN : Sim.Safety.classify(pFault, txFault);
+        const worst = sF.worstRatio > sN.worstRatio ? sF : sN;
+        const rx = Sim.Receiver.linkBudget(p, tx, p.distM);
+        const chain = Sim.Receiver.evalChain(p, rx);
+
+        const feasible = worst.worstRatio <= 1 && rx.snrDb >= p.minSnrDb && chain.clean;
+        return { p, worst, snrDb: rx.snrDb, chainClean: chain.clean, feasible,
+                 score: Math.min(worst.marginDb, rx.snrDb - p.minSnrDb) };
+    }
+
+    let autoSolveRunning = false;
+    function autoSolve() {
+        if (autoSolveRunning) return;
+        autoSolveRunning = true;
+        const btn = $('btnAutoSolve');
+        const status = $('autoSolveStatus');
+        btn.disabled = true;
+        const pBase = buildParams();
+
+        const combos = [];
+        AUTO_OPTICS.forEach(o => {
+            for (let i = 1; i <= 100; i++) combos.push([o, i / 10]);
+        });
+
+        let best = null;
+        let bestEffort = null;
+        let idx = 0;
+        const BATCH = 16;
+        status.className = 'auto-solve-status';
+        status.innerText = 'Searching… 0 %';
+
+        function step() {
+            const end = Math.min(idx + BATCH, combos.length);
+            for (; idx < end; idx++) {
+                const [optics, iA] = combos[idx];
+                const r = evalAutoCandidate(pBase, optics.values, iA);
+                if (r.feasible && (!best || r.score > best.score ||
+                    (r.score === best.score && iA < best.iA))) {
+                    best = { ...r, iA, optics };
+                }
+                if (!bestEffort || r.score > bestEffort.score) {
+                    bestEffort = { ...r, iA, optics };
+                }
+            }
+            status.innerText = `Searching… ${Math.round(idx / combos.length * 100)} %`;
+            if (idx < combos.length) { setTimeout(step, 0); return; }
+            finish();
+        }
+
+        function finish() {
+            autoSolveRunning = false;
+            btn.disabled = false;
+            if (best) {
+                applyValues({ ...best.optics.values, driveCurrent: best.iA.toFixed(1) });
+                updateOpticsModeUI();
+                updateSimulation();
+                status.className = 'auto-solve-status ok';
+                status.innerText = `${best.optics.name} @ ${best.iA.toFixed(1)} A — ` +
+                    `SNR ${best.snrDb.toFixed(1)} dB (+${(best.snrDb - pBase.minSnrDb).toFixed(1)} dB margin) ` +
+                    `at ${pBase.distM} m, safety margin +${best.worst.marginDb.toFixed(1)} dB — Class 1.`;
+            } else {
+                status.className = 'auto-solve-status warn';
+                const r = bestEffort;
+                const reasons = [];
+                if (r.worst.worstRatio > 1) reasons.push(`exceeds Class 1 AEL (${r.worst.worstRatio.toFixed(1)}×)`);
+                if (r.snrDb < pBase.minSnrDb) reasons.push(`SNR ${r.snrDb.toFixed(1)} dB < ${pBase.minSnrDb} dB`);
+                if (!r.chainClean) reasons.push('RX chain not clean');
+                status.innerText = `No Class-1 setup closes the link at ${pBase.distM} m ` +
+                    `(visibility ${pBase.visibilityKm} km). Closest: ${r.optics.name} @ ${r.iA.toFixed(1)} A — ` +
+                    `${reasons.join(', ')}. Try a larger RX lens, shorter distance, better weather, or lower min SNR.`;
+            }
+        }
+
+        setTimeout(step, 0);
+    }
+
+    // ------------------------------------------------------------------
+    // Saved settings (localStorage) + base64 share/import
+    // ------------------------------------------------------------------
+    const SAVE_KEY = 'sim-saved-configs-v1';
+    const MAX_SAVED = 20;
+
+    function getSavedConfigs() {
+        try {
+            const l = JSON.parse(localStorage.getItem(SAVE_KEY));
+            return Array.isArray(l) ? l : [];
+        } catch (e) { return []; }
+    }
+
+    function persistSavedConfigs(list) {
+        try { localStorage.setItem(SAVE_KEY, JSON.stringify(list)); } catch (e) { /* quota */ }
+    }
+
+    function snapshotValues() {
+        const v = {};
+        Object.keys(inputs).forEach(k => { v[k] = inputs[k].value; });
+        return v;
+    }
+
+    function summaryFromValues(values) {
+        return `I=${values.driveCurrent} A, d=${values.distance} m, ` +
+            `${values.opticsMode}, ${values.pulseFreqNum || values.pulseFreq} kHz`;
+    }
+
+    function applyConfigValues(values) {
+        applyValues(values);
+        updateOpticsModeUI();
+        const agc = inputs.agcMode.value === 'agc';
+        $('ctrlTiaGain').style.display = agc ? 'none' : 'block';
+        $('ctrlAgcTarget').style.display = agc ? 'block' : 'none';
+        updateSimulation();
+    }
+
+    function addConfig(name, values, summary) {
+        const arr = getSavedConfigs();
+        arr.unshift({ name, ts: Date.now(), summary, values });
+        if (arr.length > MAX_SAVED) arr.length = MAX_SAVED;
+        persistSavedConfigs(arr);
+        renderSavedList();
+    }
+
+    function saveConfig() {
+        const nameInput = $('saveName');
+        const name = nameInput.value.trim() || `Config ${getSavedConfigs().length + 1}`;
+        const values = snapshotValues();
+        addConfig(name, values, summaryFromValues(values));
+        nameInput.value = '';
+    }
+
+    function renderSavedList() {
+        const listEl = $('savedList');
+        listEl.innerHTML = '';
+        const cfgs = getSavedConfigs();
+        if (!cfgs.length) {
+            const empty = document.createElement('div');
+            empty.className = 'saved-empty';
+            empty.textContent = 'No saved configurations yet.';
+            listEl.appendChild(empty);
+            return;
+        }
+        cfgs.forEach((cfg, idx) => {
+            const row = document.createElement('div');
+            row.className = 'saved-item';
+
+            const info = document.createElement('div');
+            info.className = 'saved-info';
+            const name = document.createElement('strong');
+            name.textContent = cfg.name;
+            const meta = document.createElement('small');
+            meta.textContent = `${new Date(cfg.ts).toLocaleString()} — ${cfg.summary || ''}`;
+            info.appendChild(name);
+            info.appendChild(meta);
+
+            const btns = document.createElement('div');
+            btns.className = 'saved-btns';
+
+            const load = document.createElement('button');
+            load.textContent = 'Load';
+            load.className = 'saved-btn load';
+            load.addEventListener('click', () => applyConfigValues(cfg.values));
+
+            const share = document.createElement('button');
+            share.textContent = 'Share';
+            share.className = 'saved-btn share';
+            share.addEventListener('click', () => exportConfig(cfg.name, cfg.values));
+
+            const del = document.createElement('button');
+            del.textContent = 'Del';
+            del.className = 'saved-btn del';
+            del.addEventListener('click', () => {
+                const arr = getSavedConfigs();
+                arr.splice(idx, 1);
+                persistSavedConfigs(arr);
+                renderSavedList();
+            });
+
+            btns.appendChild(load);
+            btns.appendChild(share);
+            btns.appendChild(del);
+            row.appendChild(info);
+            row.appendChild(btns);
+            listEl.appendChild(row);
+        });
+    }
+
+    function setShareStatus(msg, isError) {
+        const el = $('shareStatus');
+        el.innerText = msg;
+        el.className = `share-status ${isError ? 'error' : 'ok'}`;
+    }
+
+    function encodeConfig(name, values) {
+        return btoa(unescape(encodeURIComponent(
+            JSON.stringify({ app: 'lasertag-sim', v: 1, name, values }))));
+    }
+
+    function decodeConfig(code) {
+        const obj = JSON.parse(decodeURIComponent(escape(atob(code.trim()))));
+        if (!obj || obj.app !== 'lasertag-sim' || obj.v !== 1 ||
+            typeof obj.values !== 'object' || obj.values === null) {
+            throw new Error('bad payload');
+        }
+        // keep only known input keys with primitive values
+        const values = {};
+        Object.keys(inputs).forEach(k => {
+            const val = obj.values[k];
+            if (typeof val === 'string' || typeof val === 'number') values[k] = String(val);
+        });
+        const name = typeof obj.name === 'string' && obj.name.trim()
+            ? obj.name.trim().slice(0, 40) : null;
+        return { name, values };
+    }
+
+    function exportConfig(name, values) {
+        const code = encodeConfig(name, values);
+        const shareInput = $('shareCode');
+        shareInput.value = code;
+        shareInput.focus();
+        shareInput.select();
+        const fallback = () => setShareStatus('Share code ready — copy it from the field.', false);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(code).then(
+                () => setShareStatus('Share code copied to clipboard.', false),
+                fallback);
+        } else {
+            fallback();
+        }
+    }
+
+    function importConfig() {
+        const code = $('importCode').value;
+        if (!code.trim()) { setShareStatus('Paste a share code first.', true); return; }
+        try {
+            const { name, values } = decodeConfig(code);
+            const cfgName = name || `Imported ${getSavedConfigs().length + 1}`;
+            addConfig(cfgName, values, summaryFromValues(values));
+            applyConfigValues(values);
+            $('importCode').value = '';
+            setShareStatus(`Imported "${cfgName}" and applied.`, false);
+        } catch (e) {
+            setShareStatus('Invalid share code — import failed.', true);
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Collapsible sidebar sections & math panel (state persisted)
     // ------------------------------------------------------------------
     const COLLAPSE_KEY = 'sim-collapse-v1';
@@ -839,7 +1109,14 @@
     $('presetDatasheet').addEventListener('click', () => setPreset('datasheet'));
     $('presetClass1').addEventListener('click', () => setPreset('class1'));
     $('presetNight').addEventListener('click', () => setPreset('night'));
-    $('btnClass1Max').addEventListener('click', applyClass1Solver);
+    $('btnAutoSolve').addEventListener('click', autoSolve);
+    $('btnSaveConfig').addEventListener('click', saveConfig);
+    $('saveName').addEventListener('keydown', e => { if (e.key === 'Enter') saveConfig(); });
+    $('btnShareCurrent').addEventListener('click', () => {
+        exportConfig($('saveName').value.trim() || 'Current setup', snapshotValues());
+    });
+    $('btnImportConfig').addEventListener('click', importConfig);
+    $('importCode').addEventListener('keydown', e => { if (e.key === 'Enter') importConfig(); });
 
     inputs.opticsMode.addEventListener('change', () => { updateOpticsModeUI(); updateSimulation(); });
     inputs.weatherPreset.addEventListener('change', () => {
@@ -880,5 +1157,6 @@
     initCharts();
     initCanvases();
     updateOpticsModeUI();
+    renderSavedList();
     updateSimulation();
 })();
