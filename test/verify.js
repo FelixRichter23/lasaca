@@ -9,7 +9,7 @@ const path = require('path');
 
 global.window = global;
 global.Sim = {};
-['constants.js', 'atmosphere.js', 'optics.js', 'receiver.js', 'safety.js'].forEach(f => {
+['constants.js', 'atmosphere.js', 'optics.js', 'receiver.js', 'safety.js', 'aim.js'].forEach(f => {
     eval(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'));
 });
 
@@ -190,5 +190,59 @@ else console.log('✅ comparator rejects sub-threshold signal');
 // monostable stretch
 check('monostable stretch 100 ns → 10 µs', chain.monoOutUs, 10, 0);
 
-console.log(failures === 0 ? '\n🎉 ALL CHECKS PASSED' : `\n💥 ${failures} CHECK(S) FAILED`);
-process.exit(failures === 0 ? 0 : 1);
+// --- 17. Aim module --------------------------------------------------------
+console.log('\n--- Aim module ---');
+
+// Spot check
+const pSpotOk = { ...p, opticsMode: 'fac', fMainMm: 125, fFacMm: 2.0, dMainMm: 18 };
+const txSpotOk = Sim.Optics.computeTxBeam(pSpotOk);
+const spotOk = Sim.Aim.checkSpot(pSpotOk, txSpotOk);
+console.log(`  spot check (FAC 125/2 mm, Ø18): ${spotOk.ok ? 'PASS' : 'FAIL'} — ${(spotOk.w*100).toFixed(1)}×${(spotOk.h*100).toFixed(1)} cm`);
+if (!spotOk.ok) { console.log('❌ spot should pass 20-40 cm ±10%'); failures++; }
+else console.log('✅ spot constraint satisfied');
+
+// Cost
+const cost = Sim.Aim.totalCost({ ...pSpotOk, opticsMode: 'fac', dRxMm: 5, filterBw: 370, agcOn: false });
+check('Aim totalCost FAC+18+5+370', cost, 18 + 35 + 45 + 5 + 5, 0);
+
+// Solve tests (async)
+function runAimTests() {
+    return new Promise(resolve => {
+        const anchors = Sim.Aim.DEFAULT_ANCHORS;
+
+        // Exact fit
+        Sim.Aim.solve(p, anchors, 'exact',
+            () => {},
+            bestExact => {
+                if (!bestExact) { console.log('❌ Aim exact mode found no candidate'); failures++; }
+                else {
+                    console.log(`✅ Aim exact mode: score=${bestExact.score.toFixed(1)}, cost=€${bestExact.cost}, spot=${(bestExact.spot.w*100).toFixed(1)}×${(bestExact.spot.h*100).toFixed(1)} cm`);
+                    if (!bestExact.safety || bestExact.safety.worstRatio > 1) { console.log('❌ exact candidate not Class 1'); failures++; }
+                }
+
+                // Envelope mode
+                Sim.Aim.solve(p, anchors, 'envelope',
+                    () => {},
+                    bestEnv => {
+                        if (!bestEnv) { console.log('❌ Aim envelope mode found no candidate'); failures++; }
+                        else {
+                            console.log(`✅ Aim envelope mode: score=${bestEnv.score.toFixed(1)}, cost=€${bestEnv.cost}`);
+                            const iFog = bestEnv.currents[0];
+                            const i5m  = bestEnv.currents[2];
+                            if (iFog < 280e-9) { console.log(`❌ envelope 200m fog ${(iFog*1e9).toFixed(1)} nA < 280 nA`); failures++; }
+                            else console.log(`   200m fog ≥ 280 nA: ${(iFog*1e9).toFixed(1)} nA`);
+                            if (i5m > 2.5e-3) { console.log(`❌ envelope 5m clear ${(i5m*1e3).toFixed(2)} mA > 2.5 mA`); failures++; }
+                            else console.log(`   5m clear ≤ 2.5 mA: ${(i5m*1e3).toFixed(2)} mA`);
+                        }
+                        resolve();
+                    }
+                );
+            }
+        );
+    });
+}
+
+runAimTests().then(() => {
+    console.log(failures === 0 ? '\n🎉 ALL CHECKS PASSED' : `\n💥 ${failures} CHECK(S) FAILED`);
+    process.exit(failures === 0 ? 0 : 1);
+});

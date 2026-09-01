@@ -56,7 +56,20 @@
         minSnr: $('minSnr'),
         measCond1: $('measCond1'),
         measCond2: $('measCond2'),
-        measCond3: $('measCond3')
+        measCond3: $('measCond3'),
+        aimMode: $('aimMode'),
+        aimDist1: $('aimDist1'),
+        aimWeather1: $('aimWeather1'),
+        aimTarget1: $('aimTarget1'),
+        aimUnit1: $('aimUnit1'),
+        aimDist2: $('aimDist2'),
+        aimWeather2: $('aimWeather2'),
+        aimTarget2: $('aimTarget2'),
+        aimUnit2: $('aimUnit2'),
+        aimDist3: $('aimDist3'),
+        aimWeather3: $('aimWeather3'),
+        aimTarget3: $('aimTarget3'),
+        aimUnit3: $('aimUnit3')
     };
 
     let rayCanvas, rayCtx, spotCanvas, spotCtx;
@@ -1101,6 +1114,138 @@
     }
 
     // ------------------------------------------------------------------
+    // Sidebar collapse (global)
+    // ------------------------------------------------------------------
+    const SIDEBAR_KEY = 'sim-sidebar-collapsed';
+    function initSidebarCollapse() {
+        let collapsed = false;
+        try { collapsed = JSON.parse(localStorage.getItem(SIDEBAR_KEY) || 'false'); } catch (e) {}
+        if (collapsed) document.querySelector('.app-container').classList.add('sidebar-collapsed');
+    }
+    function toggleSidebar(collapsed) {
+        document.querySelector('.app-container').classList.toggle('sidebar-collapsed', collapsed);
+        try { localStorage.setItem(SIDEBAR_KEY, JSON.stringify(collapsed)); } catch (e) {}
+    }
+
+    // ------------------------------------------------------------------
+    // Define Aim
+    // ------------------------------------------------------------------
+    function readAnchors() {
+        const anchors = [];
+        for (let i = 1; i <= 3; i++) {
+            const dist = parseFloat(inputs[`aimDist${i}`].value) || 0;
+            const weather = inputs[`aimWeather${i}`].value;
+            const target = parseFloat(inputs[`aimTarget${i}`].value) || 0;
+            const unit = parseFloat(inputs[`aimUnit${i}`].value) || 1e-9;
+            if (dist > 0 && target >= 0) {
+                anchors.push({ distM: dist, weather, targetA: target * unit });
+            }
+        }
+        return anchors;
+    }
+
+    function fmtCurrent(a) {
+        if (a >= 1e-3) return `${(a * 1e3).toFixed(2)} mA`;
+        if (a >= 1e-6) return `${(a * 1e6).toFixed(2)} µA`;
+        return `${(a * 1e9).toFixed(1)} nA`;
+    }
+
+    let aimSolveRunning = false;
+    function defineAim() {
+        if (aimSolveRunning) return;
+        aimSolveRunning = true;
+        const btn = $('btnDefineAim');
+        const status = $('aimStatus');
+        const results = $('aimResults');
+        btn.disabled = true;
+        status.className = 'auto-solve-status';
+        status.innerText = 'Searching… 0 %';
+        results.style.display = 'none';
+
+        const anchors = readAnchors();
+        if (anchors.length === 0) {
+            status.className = 'auto-solve-status warn';
+            status.innerText = 'Please fill in at least one anchor row.';
+            btn.disabled = false;
+            aimSolveRunning = false;
+            return;
+        }
+
+        const pBase = buildParams();
+        const mode = inputs.aimMode.value;
+
+        Sim.Aim.solve(pBase, anchors, mode,
+            pct => { status.innerText = `Searching… ${pct} %`; },
+            best => {
+                aimSolveRunning = false;
+                btn.disabled = false;
+                if (!best) {
+                    status.className = 'auto-solve-status warn';
+                    status.innerText = 'No feasible setup found. Try relaxing constraints (wider spot, lower min SNR, or closer distance).';
+                    return;
+                }
+                status.className = 'auto-solve-status ok';
+                status.innerText = 'Setup found — see results below.';
+                renderAimResults(best, anchors);
+                results.style.display = 'block';
+            }
+        );
+    }
+
+    function renderAimResults(best, anchors) {
+        window._aimLastBest = best;
+        const p = best.p;
+        const opticsName = p.opticsMode === 'fac' ? `FAC + ${p.fMainMm} mm` :
+            p.opticsMode === 'anamorphic' ? `Anamorphic (${p.fSlowMm}/${p.fFastMm} mm)` :
+            `Single ${p.fMainMm} mm`;
+        $('aimResOptics').innerText = opticsName;
+        $('aimResCurrent').innerText = `${p.iForward.toFixed(1)} A`;
+        $('aimResRxLens').innerText = `${p.dRxMm} mm`;
+        $('aimResGain').innerText = p.agcOn ? `AGC @ ${p.agcTargetV} V` : `Manual ${p.gain} Ω`;
+        $('aimResSpot').innerText = `${(best.spot.w * 100).toFixed(1)} × ${(best.spot.h * 100).toFixed(1)} cm`;
+        $('aimResCost').innerText = `≈ €${best.cost}`;
+        $('aimResMargin').innerText = `${best.safety.marginDb >= 0 ? '+' : ''}${best.safety.marginDb.toFixed(1)} dB`;
+        $('aimResChain').innerText = 'CLEAN';
+
+        $('aimResultBody').innerHTML = anchors.map((a, i) => {
+            const achieved = best.currents[i];
+            const diffPct = a.targetA > 0 ? ((achieved - a.targetA) / a.targetA * 100) : 0;
+            const diffCls = Math.abs(diffPct) <= 10 ? 'pass' : (Math.abs(diffPct) <= 30 ? 'warn' : 'fail');
+            return `<tr>
+                <td>${a.distM} m, ${Sim.Atmosphere.WEATHER_PRESETS[a.weather].label}</td>
+                <td>${fmtCurrent(a.targetA)}</td>
+                <td>${fmtCurrent(achieved)} <span class="ratio ${diffCls}">${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(1)}%</span></td>
+            </tr>`;
+        }).join('');
+    }
+
+    function applyAimWinner() {
+        const best = window._aimLastBest;
+        if (!best) return;
+        const p = best.p;
+        inputs.driveCurrent.value = p.iForward.toFixed(1);
+        inputs.opticsMode.value = p.opticsMode;
+        inputs.focalMain.value = p.fMainMm;
+        inputs.lensDiameterTx.value = p.dMainMm;
+        if (p.opticsMode === 'fac') inputs.focalFac.value = p.fFacMm;
+        if (p.opticsMode === 'anamorphic') {
+            inputs.focalSlow.value = p.fSlowMm;
+            inputs.focalFast.value = p.fFastMm;
+        }
+        inputs.lensDiameterRx.value = p.dRxMm;
+        inputs.tiaGain.value = p.gain;
+        inputs.agcMode.value = p.agcOn ? 'agc' : 'manual';
+        inputs.agcTarget.value = p.agcTargetV;
+        inputs.acCoupling.value = p.acCoupling;
+        updateOpticsModeUI();
+        const agc = inputs.agcMode.value === 'agc';
+        $('ctrlTiaGain').style.display = agc ? 'none' : 'block';
+        $('ctrlAgcTarget').style.display = agc ? 'block' : 'none';
+        updateSimulation();
+        $('aimStatus').innerText = 'Setup applied to simulator.';
+    }
+
+    // ------------------------------------------------------------------
     // Events
     // ------------------------------------------------------------------
     $('preset100mm').addEventListener('click', () => setPreset('100mm'));
@@ -1149,10 +1294,15 @@
         updateSimulation();
         setTimeout(() => { isShooting = false; updateSimulation(); }, 1500);
     });
+    $('btnDefineAim').addEventListener('click', defineAim);
+    $('btnApplyAim').addEventListener('click', applyAimWinner);
+    $('sidebarToggle').addEventListener('click', () => toggleSidebar(true));
+    $('sidebarExpand').addEventListener('click', () => toggleSidebar(false));
 
     // ------------------------------------------------------------------
     // Init
     // ------------------------------------------------------------------
+    initSidebarCollapse();
     initCollapsibles();
     initCharts();
     initCanvases();

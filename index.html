@@ -19,6 +19,7 @@
                     <h2>LASERTAG SIM</h2>
                     <span class="badge">905nm Optics &bull; Link Budget &bull; Class 1 Safety</span>
                 </div>
+                <button id="sidebarToggle" class="sidebar-toggle" title="Collapse sidebar">←</button>
             </div>
 
             <!-- Quick Presets -->
@@ -312,6 +313,110 @@
 
                 <button id="btnAutoSolve" class="solver-btn" title="Searches all compatible optics/current combinations and applies the safest Class-1 setup that still reliably closes the link at the selected distance and weather">Auto: Find Safest Class-1 Setup</button>
                 <div id="autoSolveStatus" class="auto-solve-status"></div>
+
+                <!-- 5b. Define Aim -->
+                <div class="control aim-subpanel">
+                    <label for="aimMode">Aim Objective:</label>
+                    <select id="aimMode" class="custom-select">
+                        <option value="exact" selected>Exact Target Fit (minimise error)</option>
+                        <option value="envelope">Dynamic Range Envelope (ensure bounds)</option>
+                    </select>
+                </div>
+                <table class="aim-table">
+                    <thead>
+                        <tr><th>Dist (m)</th><th>Weather</th><th>Target</th><th>Unit</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><input type="number" id="aimDist1" class="num-input" value="200" min="1" max="500" step="1"></td>
+                            <td>
+                                <select id="aimWeather1" class="custom-select">
+                                    <option value="clear">Clear (23 km)</option>
+                                    <option value="haze">Haze (10 km)</option>
+                                    <option value="rain">Rain (4 km)</option>
+                                    <option value="lightfog">Light Fog (2 km)</option>
+                                    <option value="fog" selected>Fog (500 m)</option>
+                                    <option value="heavyfog">Heavy Fog (200 m)</option>
+                                </select>
+                            </td>
+                            <td><input type="number" id="aimTarget1" class="num-input" value="280" min="0" step="any"></td>
+                            <td>
+                                <select id="aimUnit1" class="custom-select">
+                                    <option value="1e-9" selected>nA</option>
+                                    <option value="1e-6">µA</option>
+                                    <option value="1e-3">mA</option>
+                                    <option value="1">A</option>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><input type="number" id="aimDist2" class="num-input" value="200" min="1" max="500" step="1"></td>
+                            <td>
+                                <select id="aimWeather2" class="custom-select">
+                                    <option value="clear" selected>Clear (23 km)</option>
+                                    <option value="haze">Haze (10 km)</option>
+                                    <option value="rain">Rain (4 km)</option>
+                                    <option value="lightfog">Light Fog (2 km)</option>
+                                    <option value="fog">Fog (500 m)</option>
+                                    <option value="heavyfog">Heavy Fog (200 m)</option>
+                                </select>
+                            </td>
+                            <td><input type="number" id="aimTarget2" class="num-input" value="5.93" min="0" step="any"></td>
+                            <td>
+                                <select id="aimUnit2" class="custom-select">
+                                    <option value="1e-9">nA</option>
+                                    <option value="1e-6" selected>µA</option>
+                                    <option value="1e-3">mA</option>
+                                    <option value="1">A</option>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><input type="number" id="aimDist3" class="num-input" value="5" min="1" max="500" step="1"></td>
+                            <td>
+                                <select id="aimWeather3" class="custom-select">
+                                    <option value="clear" selected>Clear (23 km)</option>
+                                    <option value="haze">Haze (10 km)</option>
+                                    <option value="rain">Rain (4 km)</option>
+                                    <option value="lightfog">Light Fog (2 km)</option>
+                                    <option value="fog">Fog (500 m)</option>
+                                    <option value="heavyfog">Heavy Fog (200 m)</option>
+                                </select>
+                            </td>
+                            <td><input type="number" id="aimTarget3" class="num-input" value="2.5" min="0" step="any"></td>
+                            <td>
+                                <select id="aimUnit3" class="custom-select">
+                                    <option value="1e-9">nA</option>
+                                    <option value="1e-6">µA</option>
+                                    <option value="1e-3" selected>mA</option>
+                                    <option value="1">A</option>
+                                </select>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <button id="btnDefineAim" class="solver-btn" title="Searches settings to match the target currents at the anchor scenarios while staying Class-1 safe">Define Aim: Find Setup</button>
+                <div id="aimStatus" class="auto-solve-status"></div>
+                <div id="aimResults" class="aim-results" style="display:none;">
+                    <div class="aim-result-head">Best setup found</div>
+                    <div class="aim-result-grid">
+                        <div class="aim-stat"><small>Optics</small><strong id="aimResOptics">—</strong></div>
+                        <div class="aim-stat"><small>Drive Current</small><strong id="aimResCurrent">—</strong></div>
+                        <div class="aim-stat"><small>RX Lens</small><strong id="aimResRxLens">—</strong></div>
+                        <div class="aim-stat"><small>Gain / AGC</small><strong id="aimResGain">—</strong></div>
+                        <div class="aim-stat"><small>Spot @ 200 m</small><strong id="aimResSpot">—</strong></div>
+                        <div class="aim-stat"><small>Est. Cost</small><strong id="aimResCost">—</strong></div>
+                    </div>
+                    <table class="aim-table">
+                        <thead><tr><th>Scenario</th><th>Target</th><th>Achieved</th></tr></thead>
+                        <tbody id="aimResultBody"></tbody>
+                    </table>
+                    <div class="aim-meta">
+                        <span>Class-1 margin: <strong id="aimResMargin">—</strong></span>
+                        <span>Chain: <strong id="aimResChain">—</strong></span>
+                    </div>
+                    <button id="btnApplyAim" class="solver-btn">Apply to Simulator</button>
+                </div>
             </div>
 
             <!-- 6. Saved Settings -->
@@ -363,6 +468,7 @@
 
             <button id="btnShoot" class="shoot-btn">Transmit Data Frame (65 bit)</button>
         </aside>
+        <button id="sidebarExpand" class="sidebar-expand" title="Expand sidebar">→</button>
 
         <!-- Main Content Area -->
         <main class="main-content">
@@ -551,6 +657,7 @@
     <script src="js/optics.js"></script>
     <script src="js/receiver.js"></script>
     <script src="js/safety.js"></script>
+    <script src="js/aim.js"></script>
     <script src="js/simulator.js"></script>
 </body>
 </html>
