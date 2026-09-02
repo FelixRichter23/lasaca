@@ -79,7 +79,18 @@ Sim.Aim = (function () {
         const spot = checkSpot(p, tx);
         if (!spot.ok) return null;
 
-        const safety = Sim.Safety.classify(p, tx);
+        // Class-1 must hold under normal AND single-fault conditions
+        // (IEC 60825-1 §5.1) — same rule as the main panel / autoSolve.
+        let safety = Sim.Safety.classify(p, tx);
+        if (p.faultMode && p.faultMode !== 'normal') {
+            const D = Sim.Constants.DIODE;
+            const iFault = p.faultMode === 'plus10'
+                ? Math.min(D.MAX_DRIVE_CURRENT_A, p.iForward * D.FAULT_CURRENT_MULT)
+                : D.MAX_DRIVE_CURRENT_A;
+            const pF = { ...p, iForward: iFault };
+            const sF = Sim.Safety.classify(pF, Sim.Optics.computeTxBeam(pF));
+            if (sF.worstRatio > safety.worstRatio) safety = sF;
+        }
         if (safety.worstRatio > 1) return null;
 
         const rxs = [];
@@ -114,17 +125,18 @@ Sim.Aim = (function () {
             score = -rmse * 1000 - cost * 0.01;
         } else {
             // envelope: [0] = min bound, [2] = max bound, [1] = soft nominal
+            if (anchors.length < 3) return null; // envelope needs all three anchors
             const iMin = currents[0];
             const iNom = currents[1];
             const iMax = currents[2];
-            const penalty =
-                Math.max(0, Math.log10(Math.max(anchors[0].targetA, 1e-18) / Math.max(iMin, 1e-18))) +
-                Math.max(0, Math.log10(Math.max(iMax, 1e-18) / Math.max(anchors[2].targetA, 1e-18)));
+            // hard bounds: any violation rejects the candidate outright
+            if (iMin < anchors[0].targetA) return null;
+            if (iMax > anchors[2].targetA) return null;
             const nomError = Math.abs(
                 Math.log10(Math.max(iNom, 1e-18)) -
                 Math.log10(Math.max(anchors[1].targetA, 1e-18))
             );
-            score = -penalty * 10000 - nomError * 100 - cost * 0.01;
+            score = -nomError * 100 - cost * 0.01;
         }
 
         return { p, tx, spot, safety, rxs, currents, cost, score };
@@ -141,7 +153,10 @@ Sim.Aim = (function () {
         const fFastVals  = [10, 15, 20, 30, 50];
         const dMainVals  = [10, 18, 25, 40];
         const dRxVals    = [2, 5, 10, 20, 30];
-        const iFwdVals   = [0.3, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        // Fine steps just above threshold (0.3 A): Class-1-limited solutions
+        // live in this region, and the envelope window can fall between
+        // coarse grid points.
+        const iFwdVals   = [0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
         const acModes    = ['before_tia', 'after_tia'];
         const gainModes  = [
             { gain: 10,   agcOn: false, agcTargetV: 0 },

@@ -242,6 +242,40 @@ function runAimTests() {
     });
 }
 
+// --- 18. Regression: clipped-beam near-field diameter --------------------
+// Ø18 mm lens clips the ~21 mm incident slow-axis beam → spot at d=0 must
+// start at 18 mm (min), not 21 mm (max).
+const spot0 = Sim.Optics.spotAtDistance(p, tx, 0);
+check('near-field spot starts at clipped beam Ø (m)', spot0.spotW_m, 0.018, 0.001);
+
+// --- 19. Simplified-eval consistency (α = αmin everywhere) ----------------
+const safetySimpl = Sim.Safety.classify({ ...p, simplifiedEval: true }, tx);
+check('simplified: α candidate = αmin', safetySimpl.alphaMrad, 1.5, 0);
+check('simplified: C5 = 1', safetySimpl.c5, 1, 0);
+if (safetySimpl.effectivePulse.grouped) { console.log('❌ ISH1 §5 grouping triggered in simplified mode'); failures++; }
+const safetyGrpSimpl = Sim.Safety.classify({ ...pGrp, simplifiedEval: true }, txGrp);
+if (safetyGrpSimpl.effectivePulse.grouped) { console.log('❌ grouping in simplified mode (large source)'); failures++; }
+else console.log('✅ no ISH1 §5 grouping in simplified mode, even for a large source');
+
+// --- 20. NOHD stays finite with measured-power override --------------------
+const pMeasBig = { ...p, measuredMw: { cond3: 0.5 } }; // 0.5 mW avg → fails Class 1
+const safetyMeasBig = Sim.Safety.classify(pMeasBig, tx);
+const nohdMeas = Sim.Safety.nohdM(pMeasBig, tx, safetyMeasBig);
+if (!Number.isFinite(nohdMeas)) { console.log('❌ NOHD not finite with measured override'); failures++; }
+else console.log(`✅ NOHD finite with measured override: ${nohdMeas.toFixed(1)} m`);
+
+// --- 21. Aim: fault mode respected + envelope anchor guard -----------------
+const candFault = Sim.Aim.evalCandidate({ ...pSpotOk, faultMode: 'short', iForward: 1.0 },
+    Sim.Aim.DEFAULT_ANCHORS, 'exact');
+if (candFault) { console.log('❌ aim accepted candidate failing Class 1 under short fault'); failures++; }
+else console.log('✅ aim rejects candidate that fails Class 1 under short fault');
+let guardOk = false;
+try {
+    guardOk = Sim.Aim.evalCandidate(pSpotOk, Sim.Aim.DEFAULT_ANCHORS.slice(0, 2), 'envelope') === null;
+} catch (e) { guardOk = false; }
+if (!guardOk) { console.log('❌ envelope mode did not cleanly reject <3 anchors'); failures++; }
+else console.log('✅ envelope mode rejects <3 anchors');
+
 runAimTests().then(() => {
     console.log(failures === 0 ? '\n🎉 ALL CHECKS PASSED' : `\n💥 ${failures} CHECK(S) FAILED`);
     process.exit(failures === 0 ? 0 : 1);

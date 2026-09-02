@@ -87,8 +87,12 @@ Sim.Safety = (function () {
 
     /** Beam 1/e² radii [m] at distance r from the TX aperture (per axis). */
     function beamRadiiM(p, tx, r) {
-        const wS0 = Math.max(p.dMainMm, tx.beamDiaLensSlowMm) / 2 * 1e-3;
-        const wF0 = Math.max(p.dMainMm, tx.beamDiaLensFastMm) / 2 * 1e-3;
+        // The lens aperture clips an overfilling beam: transmitted diameter
+        // at the lens plane is min(lens Ø, incident beam Ø). Using the
+        // larger value would underestimate the aperture capture (and hence
+        // the accessible emission) — non-conservative.
+        const wS0 = Math.min(p.dMainMm, tx.beamDiaLensSlowMm) / 2 * 1e-3;
+        const wF0 = Math.min(p.dMainMm, tx.beamDiaLensFastMm) / 2 * 1e-3;
         const growS = r * Math.tan((tx.divOutSlowMrad / 1000) / 2);
         const growF = r * Math.tan((tx.divOutFastMrad / 1000) / 2);
         return {
@@ -174,8 +178,11 @@ Sim.Safety = (function () {
         const alphaReal = Math.min(tx.alphaMeanMrad, IEC.ALPHA_MAX_LIMIT_MRAD);
         const timeBase = p.timeBaseS || IEC.TIME_BASE_DEFAULT_S;
 
-        // Candidate α values (ISH1 §6b allows assuming a smaller source)
-        const alphas = [alphaReal];
+        // Candidate α values (ISH1 §6b allows assuming a smaller source).
+        // Simplified evaluation (ISH1 §6d) pins α = αmin so that C6 = 1 and
+        // C5 = 1 consistently — including for T2 and the ISH1 §5 grouping
+        // check, which must not trigger at α ≤ 5 mrad.
+        const alphas = p.simplifiedEval ? [IEC.ALPHA_MIN_MRAD] : [alphaReal];
         if (!p.simplifiedEval) {
             if (alphaReal > 5) alphas.push(5);
             if (alphaReal > IEC.ALPHA_MIN_MRAD) alphas.push(IEC.ALPHA_MIN_MRAD);
@@ -261,8 +268,13 @@ Sim.Safety = (function () {
         const res = classification || classify(p, tx);
         const cond3 = res.conditions.find(c => c.cond.key === 'cond3');
         const refRatio = Math.max(cond3.crit1.ratio, cond3.crit2.ratio, cond3.crit3.ratio);
-        const capRef = cond3.capture;
-        if (refRatio <= 1) return 0;
+        // With a measured-power override cond3.capture is null; fall back to
+        // the computed capture at the Cond.-3 distance so the linear ratio
+        // scaling below stays finite.
+        const capRef = cond3.capture > 0
+            ? cond3.capture
+            : conditionCapture(p, tx, IEC.MEAS_CONDITIONS.COND3_NAKED_EYE);
+        if (refRatio <= 1 || !(capRef > 0)) return 0;
         const apt = IEC.MEAS_CONDITIONS.COND3_NAKED_EYE.apertureMm;
         let last = 0;
         for (let r = 0.1; r <= 2000; r += r < 10 ? 0.1 : (r < 100 ? 1 : 10)) {
@@ -277,6 +289,9 @@ Sim.Safety = (function () {
     /**
      * Class-1 solver. Accessible emission is linear in (I_F − I_th), so the
      * max compliant drive current follows directly from the current ratio.
+     * NOTE: the result is expressed in the same domain as the given p/tx —
+     * when the worst case is a fault condition, pass the fault p/tx and map
+     * the current back through the fault multiplier (see simulator.js).
      * @returns {maxCurrentA, maxTxPeakPowerW}
      */
     function solveMaxClass1(p, tx, classification) {

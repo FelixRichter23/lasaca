@@ -157,6 +157,26 @@
         return p.iForward;
     }
 
+    /**
+     * Class-1 current limit expressed in normal-mode slider units.
+     * Sim.Safety.solveMaxClass1 works in whichever domain the worst case
+     * lives in; a fault-domain result must be mapped back through the fault
+     * current model, otherwise the solved slider current does not land on
+     * ratio = 1 (slightly non-conservative for +10 %, wrong for short).
+     */
+    function class1SliderLimit(pWorst, txWorst, safetyWorst, worstIsFault, faultMode) {
+        const s = Sim.Safety.solveMaxClass1(pWorst, txWorst, safetyWorst);
+        let maxA = s.maxCurrentA;
+        if (worstIsFault && faultMode === 'plus10') {
+            maxA = Math.min(C.DIODE.MAX_DRIVE_CURRENT_A, maxA / C.DIODE.FAULT_CURRENT_MULT);
+        } else if (worstIsFault && faultMode === 'short') {
+            // Fault current is fixed at 25 A regardless of the slider: if the
+            // short still passes, any slider value is fine; if not, none helps.
+            maxA = safetyWorst.worstRatio <= 1 ? C.DIODE.MAX_DRIVE_CURRENT_A : C.DIODE.I_THRESHOLD_A;
+        }
+        return { maxCurrentA: maxA, maxTxPeakPowerW: s.maxTxPeakPowerW };
+    }
+
     // ------------------------------------------------------------------
     // Charts
     // ------------------------------------------------------------------
@@ -274,7 +294,7 @@
         const pWorst = worstIsFault ? pFault : p;
         const combinedRatio = safetyWorst.worstRatio;
 
-        const solver = Sim.Safety.solveMaxClass1(p, tx, safetyWorst);
+        const solver = class1SliderLimit(pWorst, txWorst, safetyWorst, worstIsFault, p.faultMode);
         const nohd = Sim.Safety.nohdM(pWorst, txWorst, safetyWorst);
 
         // ---- Diode / duty cycle -----------------------------------------
@@ -433,7 +453,7 @@
             <div><small>Tcrit / grouping</small><strong>${(ep.tcrit * 1e6).toFixed(1)} µs / ${ep.grouped ? 'frame grouped' : 'not required'}</strong></div>
             <div><small>T2 / eval duration</small><strong>${safety.t2.toFixed(1)} s / ${safety.evalDur.toFixed(1)} s</strong></div>
             <div><small>λ (temp drift)</small><strong>${tx.lambdaNm.toFixed(1)} nm</strong></div>
-            <div><small>Protocol rate</small><strong>${PROT.MAX_PULSES_PER_S} pulses/s</strong></div>
+            <div><small>Protocol rate</small><strong>${(p.bitsPerFrame * p.framesPerS).toLocaleString()} pulses/s</strong></div>
             <div><small>α candidate used</small><strong>${safety.alphaMrad.toFixed(2)} of ${safety.alphaRealMrad.toFixed(2)} mrad</strong></div>`;
 
         // Conditions table
@@ -797,8 +817,10 @@
         const txFault = p.faultMode === 'normal' ? tx : Sim.Optics.computeTxBeam(pFault);
         const sN = Sim.Safety.classify(p, tx);
         const sF = p.faultMode === 'normal' ? sN : Sim.Safety.classify(pFault, txFault);
-        const worst = sF.worstRatio > sN.worstRatio ? sF : sN;
-        const solver = Sim.Safety.solveMaxClass1(p, tx, worst);
+        const worstIsFault = sF.worstRatio > sN.worstRatio;
+        const worst = worstIsFault ? sF : sN;
+        const solver = class1SliderLimit(worstIsFault ? pFault : p, worstIsFault ? txFault : tx,
+            worst, worstIsFault, p.faultMode);
         inputs.driveCurrent.value = Math.min(10, Math.max(0.1, solver.maxCurrentA)).toFixed(1);
         updateSimulation();
     }
@@ -1137,17 +1159,11 @@
             const weather = inputs[`aimWeather${i}`].value;
             const target = parseFloat(inputs[`aimTarget${i}`].value) || 0;
             const unit = parseFloat(inputs[`aimUnit${i}`].value) || 1e-9;
-            if (dist > 0 && target >= 0) {
+            if (dist > 0 && target > 0) {
                 anchors.push({ distM: dist, weather, targetA: target * unit });
             }
         }
         return anchors;
-    }
-
-    function fmtCurrent(a) {
-        if (a >= 1e-3) return `${(a * 1e3).toFixed(2)} mA`;
-        if (a >= 1e-6) return `${(a * 1e6).toFixed(2)} µA`;
-        return `${(a * 1e9).toFixed(1)} nA`;
     }
 
     let aimSolveRunning = false;
@@ -1173,6 +1189,13 @@
 
         const pBase = buildParams();
         const mode = inputs.aimMode.value;
+        if (mode === 'envelope' && anchors.length < 3) {
+            status.className = 'auto-solve-status warn';
+            status.innerText = 'Envelope mode needs all three anchor rows (min / nominal / max).';
+            btn.disabled = false;
+            aimSolveRunning = false;
+            return;
+        }
 
         Sim.Aim.solve(pBase, anchors, mode,
             pct => { status.innerText = `Searching… ${pct} %`; },
@@ -1235,7 +1258,7 @@
         inputs.lensDiameterRx.value = p.dRxMm;
         inputs.tiaGain.value = p.gain;
         inputs.agcMode.value = p.agcOn ? 'agc' : 'manual';
-        inputs.agcTarget.value = p.agcTargetV;
+        if (p.agcOn && p.agcTargetV > 0) inputs.agcTarget.value = p.agcTargetV;
         inputs.acCoupling.value = p.acCoupling;
         updateOpticsModeUI();
         const agc = inputs.agcMode.value === 'agc';
