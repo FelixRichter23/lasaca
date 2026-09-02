@@ -9,7 +9,7 @@ const path = require('path');
 
 global.window = global;
 global.Sim = {};
-['constants.js', 'atmosphere.js', 'optics.js', 'receiver.js', 'safety.js'].forEach(f => {
+['constants.js', 'atmosphere.js', 'optics.js', 'receiver.js', 'safety.js', 'aim.js'].forEach(f => {
     eval(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'));
 });
 
@@ -190,5 +190,93 @@ else console.log('✅ comparator rejects sub-threshold signal');
 // monostable stretch
 check('monostable stretch 100 ns → 10 µs', chain.monoOutUs, 10, 0);
 
-console.log(failures === 0 ? '\n🎉 ALL CHECKS PASSED' : `\n💥 ${failures} CHECK(S) FAILED`);
-process.exit(failures === 0 ? 0 : 1);
+// --- 17. Aim module --------------------------------------------------------
+console.log('\n--- Aim module ---');
+
+// Spot check
+const pSpotOk = { ...p, opticsMode: 'fac', fMainMm: 125, fFacMm: 2.0, dMainMm: 18 };
+const txSpotOk = Sim.Optics.computeTxBeam(pSpotOk);
+const spotOk = Sim.Aim.checkSpot(pSpotOk, txSpotOk);
+console.log(`  spot check (FAC 125/2 mm, Ø18): ${spotOk.ok ? 'PASS' : 'FAIL'} — ${(spotOk.w*100).toFixed(1)}×${(spotOk.h*100).toFixed(1)} cm`);
+if (!spotOk.ok) { console.log('❌ spot should pass 20-40 cm ±10%'); failures++; }
+else console.log('✅ spot constraint satisfied');
+
+// Cost
+const cost = Sim.Aim.totalCost({ ...pSpotOk, opticsMode: 'fac', dRxMm: 5, filterBw: 370, agcOn: false });
+check('Aim totalCost FAC+18+5+370', cost, 18 + 35 + 45 + 5 + 5, 0);
+
+// Solve tests (async)
+function runAimTests() {
+    return new Promise(resolve => {
+        const anchors = Sim.Aim.DEFAULT_ANCHORS;
+
+        // Exact fit
+        Sim.Aim.solve(p, anchors, 'exact',
+            () => {},
+            bestExact => {
+                if (!bestExact) { console.log('❌ Aim exact mode found no candidate'); failures++; }
+                else {
+                    console.log(`✅ Aim exact mode: score=${bestExact.score.toFixed(1)}, cost=€${bestExact.cost}, spot=${(bestExact.spot.w*100).toFixed(1)}×${(bestExact.spot.h*100).toFixed(1)} cm`);
+                    if (!bestExact.safety || bestExact.safety.worstRatio > 1) { console.log('❌ exact candidate not Class 1'); failures++; }
+                }
+
+                // Envelope mode
+                Sim.Aim.solve(p, anchors, 'envelope',
+                    () => {},
+                    bestEnv => {
+                        if (!bestEnv) { console.log('❌ Aim envelope mode found no candidate'); failures++; }
+                        else {
+                            console.log(`✅ Aim envelope mode: score=${bestEnv.score.toFixed(1)}, cost=€${bestEnv.cost}`);
+                            const iFog = bestEnv.currents[0];
+                            const i5m  = bestEnv.currents[2];
+                            if (iFog < 280e-9) { console.log(`❌ envelope 200m fog ${(iFog*1e9).toFixed(1)} nA < 280 nA`); failures++; }
+                            else console.log(`   200m fog ≥ 280 nA: ${(iFog*1e9).toFixed(1)} nA`);
+                            if (i5m > 2.5e-3) { console.log(`❌ envelope 5m clear ${(i5m*1e3).toFixed(2)} mA > 2.5 mA`); failures++; }
+                            else console.log(`   5m clear ≤ 2.5 mA: ${(i5m*1e3).toFixed(2)} mA`);
+                        }
+                        resolve();
+                    }
+                );
+            }
+        );
+    });
+}
+
+// --- 18. Regression: clipped-beam near-field diameter --------------------
+// Ø18 mm lens clips the ~21 mm incident slow-axis beam → spot at d=0 must
+// start at 18 mm (min), not 21 mm (max).
+const spot0 = Sim.Optics.spotAtDistance(p, tx, 0);
+check('near-field spot starts at clipped beam Ø (m)', spot0.spotW_m, 0.018, 0.001);
+
+// --- 19. Simplified-eval consistency (α = αmin everywhere) ----------------
+const safetySimpl = Sim.Safety.classify({ ...p, simplifiedEval: true }, tx);
+check('simplified: α candidate = αmin', safetySimpl.alphaMrad, 1.5, 0);
+check('simplified: C5 = 1', safetySimpl.c5, 1, 0);
+if (safetySimpl.effectivePulse.grouped) { console.log('❌ ISH1 §5 grouping triggered in simplified mode'); failures++; }
+const safetyGrpSimpl = Sim.Safety.classify({ ...pGrp, simplifiedEval: true }, txGrp);
+if (safetyGrpSimpl.effectivePulse.grouped) { console.log('❌ grouping in simplified mode (large source)'); failures++; }
+else console.log('✅ no ISH1 §5 grouping in simplified mode, even for a large source');
+
+// --- 20. NOHD stays finite with measured-power override --------------------
+const pMeasBig = { ...p, measuredMw: { cond3: 0.5 } }; // 0.5 mW avg → fails Class 1
+const safetyMeasBig = Sim.Safety.classify(pMeasBig, tx);
+const nohdMeas = Sim.Safety.nohdM(pMeasBig, tx, safetyMeasBig);
+if (!Number.isFinite(nohdMeas)) { console.log('❌ NOHD not finite with measured override'); failures++; }
+else console.log(`✅ NOHD finite with measured override: ${nohdMeas.toFixed(1)} m`);
+
+// --- 21. Aim: fault mode respected + envelope anchor guard -----------------
+const candFault = Sim.Aim.evalCandidate({ ...pSpotOk, faultMode: 'short', iForward: 1.0 },
+    Sim.Aim.DEFAULT_ANCHORS, 'exact');
+if (candFault) { console.log('❌ aim accepted candidate failing Class 1 under short fault'); failures++; }
+else console.log('✅ aim rejects candidate that fails Class 1 under short fault');
+let guardOk = false;
+try {
+    guardOk = Sim.Aim.evalCandidate(pSpotOk, Sim.Aim.DEFAULT_ANCHORS.slice(0, 2), 'envelope') === null;
+} catch (e) { guardOk = false; }
+if (!guardOk) { console.log('❌ envelope mode did not cleanly reject <3 anchors'); failures++; }
+else console.log('✅ envelope mode rejects <3 anchors');
+
+runAimTests().then(() => {
+    console.log(failures === 0 ? '\n🎉 ALL CHECKS PASSED' : `\n💥 ${failures} CHECK(S) FAILED`);
+    process.exit(failures === 0 ? 0 : 1);
+});

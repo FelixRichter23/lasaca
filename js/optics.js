@@ -163,13 +163,14 @@ Sim.Optics = (function () {
 
     /**
      * Elliptical spot geometry at a given distance from the TX aperture.
-     * Uses per-axis output divergence; near field starts at the beam
-     * diameter at the lens plane.
+     * Uses per-axis output divergence; near field starts at the *clipped*
+     * beam diameter at the lens plane: the lens aperture truncates an
+     * overfilling beam, so the transmitted diameter is min(lens Ø, beam Ø).
      */
     function spotAtDistance(p, tx, distM) {
-        const w = Math.max(p.dMainMm, tx.beamDiaLensSlowMm) * 1e-3 +
+        const w = Math.min(p.dMainMm, tx.beamDiaLensSlowMm) * 1e-3 +
             2 * distM * Math.tan((tx.divOutSlowMrad / 1000) / 2);
-        const h = Math.max(p.dMainMm, tx.beamDiaLensFastMm) * 1e-3 +
+        const h = Math.min(p.dMainMm, tx.beamDiaLensFastMm) * 1e-3 +
             2 * distM * Math.tan((tx.divOutFastMrad / 1000) / 2);
         return { spotW_m: w, spotH_m: h, area_m2: Math.PI * (w / 2) * (h / 2) };
     }

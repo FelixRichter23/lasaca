@@ -56,7 +56,20 @@
         minSnr: $('minSnr'),
         measCond1: $('measCond1'),
         measCond2: $('measCond2'),
-        measCond3: $('measCond3')
+        measCond3: $('measCond3'),
+        aimMode: $('aimMode'),
+        aimDist1: $('aimDist1'),
+        aimWeather1: $('aimWeather1'),
+        aimTarget1: $('aimTarget1'),
+        aimUnit1: $('aimUnit1'),
+        aimDist2: $('aimDist2'),
+        aimWeather2: $('aimWeather2'),
+        aimTarget2: $('aimTarget2'),
+        aimUnit2: $('aimUnit2'),
+        aimDist3: $('aimDist3'),
+        aimWeather3: $('aimWeather3'),
+        aimTarget3: $('aimTarget3'),
+        aimUnit3: $('aimUnit3')
     };
 
     let rayCanvas, rayCtx, spotCanvas, spotCtx;
@@ -142,6 +155,26 @@
         if (p.faultMode === 'plus10') return Math.min(C.DIODE.MAX_DRIVE_CURRENT_A, p.iForward * C.DIODE.FAULT_CURRENT_MULT);
         if (p.faultMode === 'short') return C.DIODE.MAX_DRIVE_CURRENT_A;
         return p.iForward;
+    }
+
+    /**
+     * Class-1 current limit expressed in normal-mode slider units.
+     * Sim.Safety.solveMaxClass1 works in whichever domain the worst case
+     * lives in; a fault-domain result must be mapped back through the fault
+     * current model, otherwise the solved slider current does not land on
+     * ratio = 1 (slightly non-conservative for +10 %, wrong for short).
+     */
+    function class1SliderLimit(pWorst, txWorst, safetyWorst, worstIsFault, faultMode) {
+        const s = Sim.Safety.solveMaxClass1(pWorst, txWorst, safetyWorst);
+        let maxA = s.maxCurrentA;
+        if (worstIsFault && faultMode === 'plus10') {
+            maxA = Math.min(C.DIODE.MAX_DRIVE_CURRENT_A, maxA / C.DIODE.FAULT_CURRENT_MULT);
+        } else if (worstIsFault && faultMode === 'short') {
+            // Fault current is fixed at 25 A regardless of the slider: if the
+            // short still passes, any slider value is fine; if not, none helps.
+            maxA = safetyWorst.worstRatio <= 1 ? C.DIODE.MAX_DRIVE_CURRENT_A : C.DIODE.I_THRESHOLD_A;
+        }
+        return { maxCurrentA: maxA, maxTxPeakPowerW: s.maxTxPeakPowerW };
     }
 
     // ------------------------------------------------------------------
@@ -261,7 +294,7 @@
         const pWorst = worstIsFault ? pFault : p;
         const combinedRatio = safetyWorst.worstRatio;
 
-        const solver = Sim.Safety.solveMaxClass1(p, tx, safetyWorst);
+        const solver = class1SliderLimit(pWorst, txWorst, safetyWorst, worstIsFault, p.faultMode);
         const nohd = Sim.Safety.nohdM(pWorst, txWorst, safetyWorst);
 
         // ---- Diode / duty cycle -----------------------------------------
@@ -420,7 +453,7 @@
             <div><small>Tcrit / grouping</small><strong>${(ep.tcrit * 1e6).toFixed(1)} µs / ${ep.grouped ? 'frame grouped' : 'not required'}</strong></div>
             <div><small>T2 / eval duration</small><strong>${safety.t2.toFixed(1)} s / ${safety.evalDur.toFixed(1)} s</strong></div>
             <div><small>λ (temp drift)</small><strong>${tx.lambdaNm.toFixed(1)} nm</strong></div>
-            <div><small>Protocol rate</small><strong>${PROT.MAX_PULSES_PER_S} pulses/s</strong></div>
+            <div><small>Protocol rate</small><strong>${(p.bitsPerFrame * p.framesPerS).toLocaleString()} pulses/s</strong></div>
             <div><small>α candidate used</small><strong>${safety.alphaMrad.toFixed(2)} of ${safety.alphaRealMrad.toFixed(2)} mrad</strong></div>`;
 
         // Conditions table
@@ -784,8 +817,10 @@
         const txFault = p.faultMode === 'normal' ? tx : Sim.Optics.computeTxBeam(pFault);
         const sN = Sim.Safety.classify(p, tx);
         const sF = p.faultMode === 'normal' ? sN : Sim.Safety.classify(pFault, txFault);
-        const worst = sF.worstRatio > sN.worstRatio ? sF : sN;
-        const solver = Sim.Safety.solveMaxClass1(p, tx, worst);
+        const worstIsFault = sF.worstRatio > sN.worstRatio;
+        const worst = worstIsFault ? sF : sN;
+        const solver = class1SliderLimit(worstIsFault ? pFault : p, worstIsFault ? txFault : tx,
+            worst, worstIsFault, p.faultMode);
         inputs.driveCurrent.value = Math.min(10, Math.max(0.1, solver.maxCurrentA)).toFixed(1);
         updateSimulation();
     }
@@ -1101,6 +1136,139 @@
     }
 
     // ------------------------------------------------------------------
+    // Sidebar collapse (global)
+    // ------------------------------------------------------------------
+    const SIDEBAR_KEY = 'sim-sidebar-collapsed';
+    function initSidebarCollapse() {
+        let collapsed = false;
+        try { collapsed = JSON.parse(localStorage.getItem(SIDEBAR_KEY) || 'false'); } catch (e) {}
+        if (collapsed) document.querySelector('.app-container').classList.add('sidebar-collapsed');
+    }
+    function toggleSidebar(collapsed) {
+        document.querySelector('.app-container').classList.toggle('sidebar-collapsed', collapsed);
+        try { localStorage.setItem(SIDEBAR_KEY, JSON.stringify(collapsed)); } catch (e) {}
+    }
+
+    // ------------------------------------------------------------------
+    // Define Aim
+    // ------------------------------------------------------------------
+    function readAnchors() {
+        const anchors = [];
+        for (let i = 1; i <= 3; i++) {
+            const dist = parseFloat(inputs[`aimDist${i}`].value) || 0;
+            const weather = inputs[`aimWeather${i}`].value;
+            const target = parseFloat(inputs[`aimTarget${i}`].value) || 0;
+            const unit = parseFloat(inputs[`aimUnit${i}`].value) || 1e-9;
+            if (dist > 0 && target > 0) {
+                anchors.push({ distM: dist, weather, targetA: target * unit });
+            }
+        }
+        return anchors;
+    }
+
+    let aimSolveRunning = false;
+    function defineAim() {
+        if (aimSolveRunning) return;
+        aimSolveRunning = true;
+        const btn = $('btnDefineAim');
+        const status = $('aimStatus');
+        const results = $('aimResults');
+        btn.disabled = true;
+        status.className = 'auto-solve-status';
+        status.innerText = 'Searching… 0 %';
+        results.style.display = 'none';
+
+        const anchors = readAnchors();
+        if (anchors.length === 0) {
+            status.className = 'auto-solve-status warn';
+            status.innerText = 'Please fill in at least one anchor row.';
+            btn.disabled = false;
+            aimSolveRunning = false;
+            return;
+        }
+
+        const pBase = buildParams();
+        const mode = inputs.aimMode.value;
+        if (mode === 'envelope' && anchors.length < 3) {
+            status.className = 'auto-solve-status warn';
+            status.innerText = 'Envelope mode needs all three anchor rows (min / nominal / max).';
+            btn.disabled = false;
+            aimSolveRunning = false;
+            return;
+        }
+
+        Sim.Aim.solve(pBase, anchors, mode,
+            pct => { status.innerText = `Searching… ${pct} %`; },
+            best => {
+                aimSolveRunning = false;
+                btn.disabled = false;
+                if (!best) {
+                    status.className = 'auto-solve-status warn';
+                    status.innerText = 'No feasible setup found. Try relaxing constraints (wider spot, lower min SNR, or closer distance).';
+                    return;
+                }
+                status.className = 'auto-solve-status ok';
+                status.innerText = 'Setup found — see results below.';
+                renderAimResults(best, anchors);
+                results.style.display = 'block';
+            }
+        );
+    }
+
+    function renderAimResults(best, anchors) {
+        window._aimLastBest = best;
+        const p = best.p;
+        const opticsName = p.opticsMode === 'fac' ? `FAC + ${p.fMainMm} mm` :
+            p.opticsMode === 'anamorphic' ? `Anamorphic (${p.fSlowMm}/${p.fFastMm} mm)` :
+            `Single ${p.fMainMm} mm`;
+        $('aimResOptics').innerText = opticsName;
+        $('aimResCurrent').innerText = `${p.iForward.toFixed(1)} A`;
+        $('aimResRxLens').innerText = `${p.dRxMm} mm`;
+        $('aimResGain').innerText = p.agcOn ? `AGC @ ${p.agcTargetV} V` : `Manual ${p.gain} Ω`;
+        $('aimResSpot').innerText = `${(best.spot.w * 100).toFixed(1)} × ${(best.spot.h * 100).toFixed(1)} cm`;
+        $('aimResCost').innerText = `≈ €${best.cost}`;
+        $('aimResMargin').innerText = `${best.safety.marginDb >= 0 ? '+' : ''}${best.safety.marginDb.toFixed(1)} dB`;
+        $('aimResChain').innerText = 'CLEAN';
+
+        $('aimResultBody').innerHTML = anchors.map((a, i) => {
+            const achieved = best.currents[i];
+            const diffPct = a.targetA > 0 ? ((achieved - a.targetA) / a.targetA * 100) : 0;
+            const diffCls = Math.abs(diffPct) <= 10 ? 'pass' : (Math.abs(diffPct) <= 30 ? 'warn' : 'fail');
+            return `<tr>
+                <td>${a.distM} m, ${Sim.Atmosphere.WEATHER_PRESETS[a.weather].label}</td>
+                <td>${fmtCurrent(a.targetA)}</td>
+                <td>${fmtCurrent(achieved)} <span class="ratio ${diffCls}">${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(1)}%</span></td>
+            </tr>`;
+        }).join('');
+    }
+
+    function applyAimWinner() {
+        const best = window._aimLastBest;
+        if (!best) return;
+        const p = best.p;
+        inputs.driveCurrent.value = p.iForward.toFixed(1);
+        inputs.opticsMode.value = p.opticsMode;
+        inputs.focalMain.value = p.fMainMm;
+        inputs.lensDiameterTx.value = p.dMainMm;
+        if (p.opticsMode === 'fac') inputs.focalFac.value = p.fFacMm;
+        if (p.opticsMode === 'anamorphic') {
+            inputs.focalSlow.value = p.fSlowMm;
+            inputs.focalFast.value = p.fFastMm;
+        }
+        inputs.lensDiameterRx.value = p.dRxMm;
+        inputs.tiaGain.value = p.gain;
+        inputs.agcMode.value = p.agcOn ? 'agc' : 'manual';
+        if (p.agcOn && p.agcTargetV > 0) inputs.agcTarget.value = p.agcTargetV;
+        inputs.acCoupling.value = p.acCoupling;
+        updateOpticsModeUI();
+        const agc = inputs.agcMode.value === 'agc';
+        $('ctrlTiaGain').style.display = agc ? 'none' : 'block';
+        $('ctrlAgcTarget').style.display = agc ? 'block' : 'none';
+        updateSimulation();
+        $('aimStatus').innerText = 'Setup applied to simulator.';
+    }
+
+    // ------------------------------------------------------------------
     // Events
     // ------------------------------------------------------------------
     $('preset100mm').addEventListener('click', () => setPreset('100mm'));
@@ -1149,10 +1317,15 @@
         updateSimulation();
         setTimeout(() => { isShooting = false; updateSimulation(); }, 1500);
     });
+    $('btnDefineAim').addEventListener('click', defineAim);
+    $('btnApplyAim').addEventListener('click', applyAimWinner);
+    $('sidebarToggle').addEventListener('click', () => toggleSidebar(true));
+    $('sidebarExpand').addEventListener('click', () => toggleSidebar(false));
 
     // ------------------------------------------------------------------
     // Init
     // ------------------------------------------------------------------
+    initSidebarCollapse();
     initCollapsibles();
     initCharts();
     initCanvases();
