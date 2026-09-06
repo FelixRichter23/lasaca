@@ -438,6 +438,12 @@
             </div>
 
             <button id="btnShoot" class="shoot-btn">Transmit Data Frame (65 bit)</button>
+            <div class="auto-tx-row">
+                <label class="auto-tx-check"><input type="checkbox" id="autoTxEnabled"> Auto</label>
+                <span>every</span>
+                <input type="number" id="autoTxInterval" class="num-input auto-tx-interval" min="0.5" max="60" step="0.1" value="1.0">
+                <span>s</span>
+            </div>
         </aside>
         <button id="sidebarExpand" class="sidebar-expand" title="Expand sidebar">→</button>
 

@@ -71,7 +71,8 @@
         aimDist3: $('aimDist3'),
         aimWeather3: $('aimWeather3'),
         aimTarget3: $('aimTarget3'),
-        aimUnit3: $('aimUnit3')
+        aimUnit3: $('aimUnit3'),
+        autoTxInterval: $('autoTxInterval')
     };
 
     // ------------------------------------------------------------------
@@ -957,10 +958,58 @@
         }
     });
 
-    $('btnShoot').addEventListener('click', () => {
+    // ------------------------------------------------------------------
+    // Transmit + auto-transmit
+    // ------------------------------------------------------------------
+    let autoTxTimer = null;
+    let frameInFlight = false;
+
+    function fireFrame() {
+        if (frameInFlight) return;
+        frameInFlight = true;
         Sim.Viz.setShooting(true);
         updateSimulation();
-        setTimeout(() => { Sim.Viz.setShooting(false); updateSimulation(); }, 1500);
+        setTimeout(() => {
+            Sim.Viz.setShooting(false);
+            updateSimulation();
+            frameInFlight = false;
+        }, 1500);
+    }
+
+    function readAutoTxInterval() {
+        const v = parseFloat(inputs.autoTxInterval.value);
+        return Math.min(60, Math.max(0.5, isNaN(v) ? 1.0 : v));
+    }
+
+    function scheduleAutoTx() {
+        autoTxTimer = setTimeout(() => {
+            if (!document.hidden) fireFrame();
+            scheduleAutoTx();
+        }, readAutoTxInterval() * 1000);
+    }
+
+    function startAutoTx() {
+        stopAutoTx();
+        $('btnShoot').classList.add('auto-active');
+        fireFrame();
+        scheduleAutoTx();
+    }
+
+    function stopAutoTx() {
+        if (autoTxTimer !== null) { clearTimeout(autoTxTimer); autoTxTimer = null; }
+        $('btnShoot').classList.remove('auto-active');
+    }
+
+    $('btnShoot').addEventListener('click', fireFrame);
+    $('autoTxEnabled').addEventListener('change', e => {
+        if (e.target.checked) startAutoTx(); else stopAutoTx();
+    });
+    inputs.autoTxInterval.addEventListener('input', () => {
+        if (autoTxTimer !== null) {
+            clearTimeout(autoTxTimer);
+            autoTxTimer = null;
+            scheduleAutoTx();
+        }
     });
     $('btnDefineAim').addEventListener('click', defineAim);
     $('btnApplyAim').addEventListener('click', applyAimWinner);
