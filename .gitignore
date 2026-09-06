@@ -1,1 +1,6 @@
 files/
+.agents/
+plans/
+
+.DS_Store
+skills-lock.json

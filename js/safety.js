@@ -258,6 +258,38 @@ Sim.Safety = (function () {
         };
     }
 
+    /** Effective drive current under the selected single-fault condition (§5.1). */
+    function faultCurrentA(p) {
+        const D = Sim.Constants.DIODE;
+        if (p.faultMode === 'plus10') return Math.min(D.MAX_DRIVE_CURRENT_A, p.iForward * D.FAULT_CURRENT_MULT);
+        if (p.faultMode === 'short') return D.MAX_DRIVE_CURRENT_A;
+        return p.iForward;
+    }
+
+    /**
+     * Classification under normal AND single-fault conditions (§5.1):
+     * evaluates both operating points and returns the full bundle, with the
+     * worst case pre-selected. Shared by the main panel, the Class-1 solver,
+     * the auto-solver and the aim solver.
+     * @param p input parameters (incl. faultMode)
+     * @param tx TX beam result for the normal operating point
+     */
+    function classifyWithFault(p, tx) {
+        const isFault = p.faultMode === 'plus10' || p.faultMode === 'short';
+        const pFault = isFault ? { ...p, iForward: faultCurrentA(p) } : p;
+        const txFault = isFault ? Sim.Optics.computeTxBeam(pFault) : tx;
+        const normal = classify(p, tx);
+        const fault = isFault ? classify(pFault, txFault) : normal;
+        const worstIsFault = fault.worstRatio > normal.worstRatio;
+        return {
+            pFault, txFault, normal, fault, worstIsFault,
+            worst: worstIsFault ? fault : normal,
+            view: isFault ? fault : normal,
+            pWorst: worstIsFault ? pFault : p,
+            txWorst: worstIsFault ? txFault : tx
+        };
+    }
+
     /**
      * NOHD-like distance: greatest distance at which a 7 mm aperture still
      * intercepts more than the (worst-criterion) Class 1 limit. 0 if already
@@ -304,5 +336,5 @@ Sim.Safety = (function () {
         };
     }
 
-    return { classify, nohdM, solveMaxClass1, apertureCapture, effectivePulse };
+    return { classify, classifyWithFault, faultCurrentA, nohdM, solveMaxClass1, apertureCapture, effectivePulse };
 })();

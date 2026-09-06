@@ -81,17 +81,9 @@ Sim.Aim = (function () {
 
         // Class-1 must hold under normal AND single-fault conditions
         // (IEC 60825-1 §5.1) — same rule as the main panel / autoSolve.
-        let safety = Sim.Safety.classify(p, tx);
-        if (p.faultMode && p.faultMode !== 'normal') {
-            const D = Sim.Constants.DIODE;
-            const iFault = p.faultMode === 'plus10'
-                ? Math.min(D.MAX_DRIVE_CURRENT_A, p.iForward * D.FAULT_CURRENT_MULT)
-                : D.MAX_DRIVE_CURRENT_A;
-            const pF = { ...p, iForward: iFault };
-            const sF = Sim.Safety.classify(pF, Sim.Optics.computeTxBeam(pF));
-            if (sF.worstRatio > safety.worstRatio) safety = sF;
-        }
-        if (safety.worstRatio > 1) return null;
+        const se = Sim.Safety.classifyWithFault(p, tx);
+        if (se.worst.worstRatio > 1) return null;
+        const safety = se.worst;
 
         const rxs = [];
         const currents = [];
@@ -219,33 +211,17 @@ Sim.Aim = (function () {
         }
 
         let best = null;
-        let idx = 0;
-        const BATCH = 32;
-
-        function step() {
-            const end = Math.min(idx + BATCH, combos.length);
-            for (; idx < end; idx++) {
-                const c = combos[idx];
-                // strip helper keys that aren't part of the param object
-                const { om, dM, ...overrides } = c;
-                const p = { ...pBase, ...overrides };
-                const r = evalCandidate(p, anchors, mode);
-                if (r && (!best || r.score > best.score)) best = r;
-            }
-            onProgress(Math.round((idx / combos.length) * 100));
-            if (idx < combos.length) {
-                setTimeout(step, 0);
-            } else {
-                onResult(best);
-            }
-        }
-
-        if (combos.length === 0) {
-            onProgress(100);
-            onResult(null);
-            return;
-        }
-        setTimeout(step, 0);
+        Sim.Search.run(combos, c => {
+            // strip helper keys that aren't part of the param object
+            const { om, dM, ...overrides } = c;
+            const pc = { ...pBase, ...overrides };
+            const r = evalCandidate(pc, anchors, mode);
+            if (r && (!best || r.score > best.score)) best = r;
+        }, {
+            batchSize: 32,
+            onProgress,
+            onDone: () => onResult(best)
+        });
     }
 
     return {

@@ -186,15 +186,7 @@
 
                 <div class="control">
                     <label for="weatherPreset">Weather (Visibility):</label>
-                    <select id="weatherPreset" class="custom-select">
-                        <option value="clear" selected>Clear (23 km)</option>
-                        <option value="haze">Haze (10 km)</option>
-                        <option value="rain">Rain (4 km)</option>
-                        <option value="lightfog">Light Fog (2 km)</option>
-                        <option value="fog">Fog (500 m)</option>
-                        <option value="heavyfog">Heavy Fog (200 m)</option>
-                        <option value="custom">Custom (slider below)</option>
-                    </select>
+                    <select id="weatherPreset" class="custom-select"><!-- options populated from Sim.Atmosphere.WEATHER_PRESETS --></select>
                 </div>
 
                 <div class="control" id="ctrlVisibility" style="display:none;">
@@ -330,14 +322,7 @@
                         <tr>
                             <td><input type="number" id="aimDist1" class="num-input" value="200" min="1" max="500" step="1"></td>
                             <td>
-                                <select id="aimWeather1" class="custom-select">
-                                    <option value="clear">Clear (23 km)</option>
-                                    <option value="haze">Haze (10 km)</option>
-                                    <option value="rain">Rain (4 km)</option>
-                                    <option value="lightfog">Light Fog (2 km)</option>
-                                    <option value="fog" selected>Fog (500 m)</option>
-                                    <option value="heavyfog">Heavy Fog (200 m)</option>
-                                </select>
+                                <select id="aimWeather1" class="custom-select"></select>
                             </td>
                             <td><input type="number" id="aimTarget1" class="num-input" value="280" min="0" step="any"></td>
                             <td>
@@ -352,14 +337,7 @@
                         <tr>
                             <td><input type="number" id="aimDist2" class="num-input" value="200" min="1" max="500" step="1"></td>
                             <td>
-                                <select id="aimWeather2" class="custom-select">
-                                    <option value="clear" selected>Clear (23 km)</option>
-                                    <option value="haze">Haze (10 km)</option>
-                                    <option value="rain">Rain (4 km)</option>
-                                    <option value="lightfog">Light Fog (2 km)</option>
-                                    <option value="fog">Fog (500 m)</option>
-                                    <option value="heavyfog">Heavy Fog (200 m)</option>
-                                </select>
+                                <select id="aimWeather2" class="custom-select"></select>
                             </td>
                             <td><input type="number" id="aimTarget2" class="num-input" value="5.93" min="0" step="any"></td>
                             <td>
@@ -374,14 +352,7 @@
                         <tr>
                             <td><input type="number" id="aimDist3" class="num-input" value="5" min="1" max="500" step="1"></td>
                             <td>
-                                <select id="aimWeather3" class="custom-select">
-                                    <option value="clear" selected>Clear (23 km)</option>
-                                    <option value="haze">Haze (10 km)</option>
-                                    <option value="rain">Rain (4 km)</option>
-                                    <option value="lightfog">Light Fog (2 km)</option>
-                                    <option value="fog">Fog (500 m)</option>
-                                    <option value="heavyfog">Heavy Fog (200 m)</option>
-                                </select>
+                                <select id="aimWeather3" class="custom-select"></select>
                             </td>
                             <td><input type="number" id="aimTarget3" class="num-input" value="2.5" min="0" step="any"></td>
                             <td>
@@ -657,7 +628,9 @@
     <script src="js/optics.js"></script>
     <script src="js/receiver.js"></script>
     <script src="js/safety.js"></script>
+    <script src="js/search.js"></script>
     <script src="js/aim.js"></script>
+    <script src="js/viz.js"></script>
     <script src="js/simulator.js"></script>
 </body>
 </html>
