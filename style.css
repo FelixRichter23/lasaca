@@ -338,6 +338,38 @@ input[type=range]::-webkit-slider-thumb:hover {
     transform: translateY(1px);
     box-shadow: 0 0 10px var(--accent-red-glow);
 }
+.shoot-btn.auto-active {
+    animation: autoTxPulse 2s ease-in-out infinite;
+}
+@keyframes autoTxPulse {
+    0%, 100% { box-shadow: 0 0 15px var(--accent-red-glow); }
+    50% { box-shadow: 0 0 30px var(--accent-red-glow), 0 0 10px var(--accent-red); }
+}
+
+.auto-tx-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+.auto-tx-check {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.auto-tx-check input[type=checkbox] {
+    accent-color: var(--accent-red);
+    cursor: pointer;
+}
+.auto-tx-interval {
+    width: 64px;
+    text-align: center;
+    flex-shrink: 0;
+}
 
 /* Main Content */
 .main-content {
