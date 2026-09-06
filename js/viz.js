@@ -10,6 +10,23 @@ Sim.Viz = (function () {
     const C = Sim.Constants;
     const $ = id => document.getElementById(id);
 
+    // Palette — mirrors the CSS tokens in style.css ("Bench Instrument").
+    const COLORS = {
+        phosphor: '#FFB000',
+        phosphorFill: 'rgba(255,176,0,0.10)',
+        phosphorHi: 'rgba(255,176,0,0.7)',
+        red: '#E5484D',
+        redDim: 'rgba(229,72,77,0.45)',
+        ok: '#57AB5A',
+        steel: '#6E93B8',
+        steelFill: 'rgba(110,147,184,0.10)',
+        text: '#D8DEE4',
+        dim: '#8A95A1',
+        grid: 'rgba(216,222,228,0.05)',
+        gridStrong: 'rgba(216,222,228,0.14)',
+        lost: 'rgba(138,149,161,0.45)'
+    };
+
     let rayCanvas, rayCtx, spotCanvas, spotCtx;
     let rawChart, filteredChart, snrChart;
     let isShooting = false;
@@ -33,14 +50,14 @@ Sim.Viz = (function () {
     // Charts
     // ------------------------------------------------------------------
     function initCharts() {
-        Chart.defaults.color = '#94a3b8';
-        Chart.defaults.font.family = "'JetBrains Mono', monospace";
+        Chart.defaults.color = COLORS.dim;
+        Chart.defaults.font.family = "'IBM Plex Mono', ui-monospace, monospace";
 
         const commonScales = {
-            x: { title: { display: true, text: 'Time (µs)' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+            x: { title: { display: true, text: 'Time (µs)' }, grid: { color: COLORS.grid } },
             y: {
                 title: { display: true, text: 'Voltage (V)' },
-                grid: { color: 'rgba(255,255,255,0.05)' },
+                grid: { color: COLORS.grid },
                 suggestedMin: -0.1, suggestedMax: 2.0
             }
         };
@@ -64,8 +81,8 @@ Sim.Viz = (function () {
                 responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
                 plugins: { legend: { display: true, labels: { boxWidth: 12 } } },
                 scales: {
-                    x: { title: { display: true, text: 'Distance (m)' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-                    y: { title: { display: true, text: 'SNR (dB)' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                    x: { title: { display: true, text: 'Distance (m)' }, grid: { color: COLORS.grid } },
+                    y: { title: { display: true, text: 'SNR (dB)' }, grid: { color: COLORS.grid } }
                 }
             }
         });
@@ -157,14 +174,14 @@ Sim.Viz = (function () {
 
         rawChart.data.labels = labels;
         rawChart.data.datasets = [
-            { label: 'Raw Sensor Voltage', data: rawData, borderColor: '#ff3366', backgroundColor: 'rgba(255,51,102,0.1)', borderWidth: 1.5, fill: true, tension: 0.1, pointRadius: 0 },
-            { label: 'Op-Amp Saturation (5V)', data: satData, borderColor: 'rgba(255,255,255,0.4)', borderWidth: 1, borderDash: [5, 5], fill: false, pointRadius: 0 }
+            { label: 'Raw Sensor Voltage', data: rawData, borderColor: COLORS.steel, backgroundColor: COLORS.steelFill, borderWidth: 1.5, fill: true, tension: 0.1, pointRadius: 0 },
+            { label: 'Op-Amp Saturation (5V)', data: satData, borderColor: COLORS.redDim, borderWidth: 1, borderDash: [5, 5], fill: false, pointRadius: 0 }
         ];
         rawChart.update();
 
         filteredChart.data.labels = labels;
         filteredChart.data.datasets = [
-            { label: 'Filtered Signal (Data Frame)', data: filtData, borderColor: '#00e5ff', backgroundColor: 'rgba(0,229,255,0.1)', borderWidth: 1.5, fill: true, tension: 0.1, pointRadius: 0 }
+            { label: 'Filtered Signal (Data Frame)', data: filtData, borderColor: COLORS.phosphor, backgroundColor: COLORS.phosphorFill, borderWidth: 1.5, fill: true, tension: 0.1, pointRadius: 0 }
         ];
         filteredChart.update();
     }
@@ -188,10 +205,10 @@ Sim.Viz = (function () {
 
         snrChart.data.labels = dists;
         snrChart.data.datasets = [
-            { label: 'SNR (current power)', data: cur, borderColor: '#00ff88', backgroundColor: 'rgba(0,255,136,0.08)', borderWidth: 2, fill: true, tension: 0.2, pointRadius: 0 },
-            { label: 'SNR (Class-1 limited)', data: lim, borderColor: '#ffb703', borderWidth: 2, borderDash: [6, 4], fill: false, tension: 0.2, pointRadius: 0 },
-            { label: 'Min. usable SNR', data: thr, borderColor: 'rgba(255,255,255,0.35)', borderWidth: 1, borderDash: [3, 4], fill: false, pointRadius: 0 },
-            { label: 'Current setup', data: pointData, borderColor: '#ff3366', backgroundColor: '#ff3366', pointRadius: 6, pointHoverRadius: 8, type: 'scatter' }
+            { label: 'SNR (current power)', data: cur, borderColor: COLORS.phosphor, backgroundColor: COLORS.phosphorFill, borderWidth: 2, fill: true, tension: 0.2, pointRadius: 0 },
+            { label: 'SNR (Class-1 limited)', data: lim, borderColor: COLORS.steel, borderWidth: 2, borderDash: [6, 4], fill: false, tension: 0.2, pointRadius: 0 },
+            { label: 'Min. usable SNR', data: thr, borderColor: COLORS.redDim, borderWidth: 1, borderDash: [3, 4], fill: false, pointRadius: 0 },
+            { label: 'Current setup', data: pointData, borderColor: COLORS.phosphor, backgroundColor: COLORS.phosphor, pointRadius: 6, pointHoverRadius: 8, type: 'scatter' }
         ];
         snrChart.update();
     }
@@ -206,48 +223,48 @@ Sim.Viz = (function () {
         const h = rayCanvas.parentElement.clientHeight;
         rayCtx.clearRect(0, 0, w, h);
 
-        rayCtx.strokeStyle = 'rgba(255,255,255,0.04)';
+        rayCtx.strokeStyle = COLORS.grid;
         rayCtx.lineWidth = 1;
         for (let x = 0; x < w; x += 30) { rayCtx.beginPath(); rayCtx.moveTo(x, 0); rayCtx.lineTo(x, h); rayCtx.stroke(); }
         for (let y = 0; y < h; y += 30) { rayCtx.beginPath(); rayCtx.moveTo(0, y); rayCtx.lineTo(w, y); rayCtx.stroke(); }
 
         const cy = h / 2;
-        rayCtx.strokeStyle = 'rgba(255,255,255,0.2)';
+        rayCtx.strokeStyle = COLORS.gridStrong;
         rayCtx.setLineDash([4, 4]);
         rayCtx.beginPath(); rayCtx.moveTo(20, cy); rayCtx.lineTo(w - 20, cy); rayCtx.stroke();
         rayCtx.setLineDash([]);
 
         const diodeX = 50, mainLensX = w * 0.65, facX = diodeX + 45;
 
-        rayCtx.fillStyle = '#ff3366';
+        rayCtx.fillStyle = '#3A4550';
         rayCtx.fillRect(diodeX - 12, cy - 18, 12, 36);
-        rayCtx.fillStyle = '#ffffff';
+        rayCtx.fillStyle = COLORS.phosphor;
         rayCtx.fillRect(diodeX - 2, cy - 6, 4, 12);
-        rayCtx.fillStyle = '#94a3b8';
-        rayCtx.font = '10px "JetBrains Mono"';
+        rayCtx.fillStyle = COLORS.dim;
+        rayCtx.font = '10px "IBM Plex Mono"';
         rayCtx.fillText('Diode (905nm)', diodeX - 25, cy + 32);
 
         const hasFAC = simState.opticsMode === 'fac';
         const mainLensHeight = Math.min(h - 40, (simState.dMainMm / 25) * 80);
 
         if (hasFAC) {
-            rayCtx.fillStyle = 'rgba(0,229,255,0.25)';
-            rayCtx.strokeStyle = '#00e5ff';
+            rayCtx.fillStyle = 'rgba(110,147,184,0.22)';
+            rayCtx.strokeStyle = COLORS.steel;
             rayCtx.lineWidth = 2;
             rayCtx.beginPath();
             rayCtx.ellipse(facX, cy, 6, 22, 0, 0, Math.PI * 2);
             rayCtx.fill(); rayCtx.stroke();
-            rayCtx.fillStyle = '#00e5ff';
+            rayCtx.fillStyle = COLORS.steel;
             rayCtx.fillText(`FAC (f=${simState.fFacMm}mm)`, facX - 25, cy - 28);
         }
 
-        rayCtx.fillStyle = 'rgba(0,255,136,0.2)';
-        rayCtx.strokeStyle = '#00ff88';
+        rayCtx.fillStyle = 'rgba(110,147,184,0.18)';
+        rayCtx.strokeStyle = COLORS.steel;
         rayCtx.lineWidth = 2;
         rayCtx.beginPath();
         rayCtx.ellipse(mainLensX, cy, 10, mainLensHeight / 2, 0, 0, Math.PI * 2);
         rayCtx.fill(); rayCtx.stroke();
-        rayCtx.fillStyle = '#00ff88';
+        rayCtx.fillStyle = COLORS.steel;
         rayCtx.fillText(`Lens Ø${simState.dMainMm}mm (f=${simState.fMainMm}mm)`, mainLensX - 45, cy - (mainLensHeight / 2) - 8);
 
         const numRays = 7;
@@ -258,25 +275,27 @@ Sim.Viz = (function () {
 
             if (hasFAC) {
                 const yAtFac = cy + Math.tan(angle) * (facX - diodeX) * 2.5;
-                rayCtx.strokeStyle = 'rgba(255,51,102,0.7)';
+                rayCtx.strokeStyle = COLORS.phosphorHi;
                 rayCtx.lineWidth = 1.5;
                 rayCtx.beginPath(); rayCtx.moveTo(diodeX, cy); rayCtx.lineTo(facX, yAtFac); rayCtx.stroke();
 
                 const yAtMain = yAtFac;
                 const captured = Math.abs(yAtMain - cy) <= (mainLensHeight / 2);
-                rayCtx.strokeStyle = captured ? 'rgba(0,229,255,0.7)' : 'rgba(255,51,102,0.4)';
+                rayCtx.strokeStyle = captured ? COLORS.phosphorHi : COLORS.lost;
                 rayCtx.beginPath(); rayCtx.moveTo(facX, yAtFac); rayCtx.lineTo(mainLensX, yAtMain); rayCtx.stroke();
-                rayCtx.strokeStyle = captured ? '#00e5ff' : 'rgba(255,51,102,0.3)';
+                rayCtx.strokeStyle = captured ? COLORS.phosphor : COLORS.lost;
+                if (!captured) rayCtx.setLineDash([4, 4]);
                 rayCtx.beginPath(); rayCtx.moveTo(mainLensX, yAtMain); rayCtx.lineTo(w - 20, yAtMain + factor * 3); rayCtx.stroke();
+                rayCtx.setLineDash([]);
             } else {
                 const yAtMain = cy + Math.tan(angle) * (mainLensX - diodeX) * 0.8;
                 const captured = Math.abs(yAtMain - cy) <= (mainLensHeight / 2);
                 if (captured) {
-                    rayCtx.strokeStyle = '#00e5ff';
+                    rayCtx.strokeStyle = COLORS.phosphor;
                     rayCtx.lineWidth = 1.5;
                     rayCtx.beginPath(); rayCtx.moveTo(diodeX, cy); rayCtx.lineTo(mainLensX, yAtMain); rayCtx.lineTo(w - 20, yAtMain * 0.95 + cy * 0.05); rayCtx.stroke();
                 } else {
-                    rayCtx.strokeStyle = '#ff3366';
+                    rayCtx.strokeStyle = COLORS.lost;
                     rayCtx.lineWidth = 1.2;
                     rayCtx.setLineDash([4, 4]);
                     rayCtx.beginPath(); rayCtx.moveTo(diodeX, cy); rayCtx.lineTo(mainLensX + 20, yAtMain * 1.05); rayCtx.stroke();
@@ -285,8 +304,8 @@ Sim.Viz = (function () {
             }
         }
 
-        rayCtx.fillStyle = '#fff';
-        rayCtx.font = '11px "JetBrains Mono"';
+        rayCtx.fillStyle = COLORS.phosphor;
+        rayCtx.font = '11px "IBM Plex Mono"';
         rayCtx.fillText(`Optical Transmission: ${(simState.lensCaptureEff * 100).toFixed(1)}%`, w - 200, 25);
     }
 
@@ -302,7 +321,7 @@ Sim.Viz = (function () {
         spotCtx.clearRect(0, 0, w, h);
 
         const cx = w / 2, cy = h / 2;
-        spotCtx.strokeStyle = 'rgba(255,255,255,0.08)';
+        spotCtx.strokeStyle = COLORS.gridStrong;
         spotCtx.lineWidth = 1;
         spotCtx.beginPath();
         spotCtx.moveTo(cx, 10); spotCtx.lineTo(cx, h - 10);
@@ -313,10 +332,10 @@ Sim.Viz = (function () {
         [0.1, 0.25, 0.5, 1.0].forEach(radiusM => {
             const rPx = radiusM * scale;
             if (rPx < Math.min(w, h) / 2) {
-                spotCtx.strokeStyle = 'rgba(255,255,255,0.04)';
+                spotCtx.strokeStyle = COLORS.grid;
                 spotCtx.beginPath(); spotCtx.arc(cx, cy, rPx, 0, Math.PI * 2); spotCtx.stroke();
-                spotCtx.fillStyle = 'rgba(255,255,255,0.2)';
-                spotCtx.font = '9px "JetBrains Mono"';
+                spotCtx.fillStyle = COLORS.dim;
+                spotCtx.font = '9px "IBM Plex Mono"';
                 spotCtx.fillText(`${radiusM * 100}cm`, cx + 4, cy - rPx + 10);
             }
         });
@@ -324,29 +343,54 @@ Sim.Viz = (function () {
         const rxPx = (simState.spotW_m / 2) * scale;
         const ryPx = (simState.spotH_m / 2) * scale;
         const grad = spotCtx.createRadialGradient(cx, cy, 2, cx, cy, Math.max(rxPx, ryPx));
-        grad.addColorStop(0, 'rgba(255,51,102,0.85)');
-        grad.addColorStop(0.5, 'rgba(0,229,255,0.45)');
-        grad.addColorStop(0.85, 'rgba(0,229,255,0.15)');
+        grad.addColorStop(0, 'rgba(255,176,0,0.8)');
+        grad.addColorStop(0.5, 'rgba(255,176,0,0.35)');
+        grad.addColorStop(0.85, 'rgba(255,176,0,0.12)');
         grad.addColorStop(1, 'transparent');
         spotCtx.fillStyle = grad;
         spotCtx.beginPath(); spotCtx.ellipse(cx, cy, rxPx, ryPx, 0, 0, Math.PI * 2); spotCtx.fill();
-        spotCtx.strokeStyle = '#00e5ff';
+        spotCtx.strokeStyle = COLORS.phosphor;
         spotCtx.lineWidth = 1.5;
         spotCtx.beginPath(); spotCtx.ellipse(cx, cy, rxPx, ryPx, 0, 0, Math.PI * 2); spotCtx.stroke();
 
         const rxLensPx = ((simState.dRxMm * 1e-3) / 2) * scale;
-        spotCtx.fillStyle = 'rgba(255,183,3,0.7)';
-        spotCtx.strokeStyle = '#ffb703';
+        spotCtx.fillStyle = 'rgba(216,222,228,0.35)';
+        spotCtx.strokeStyle = COLORS.text;
         spotCtx.lineWidth = 2;
         spotCtx.beginPath(); spotCtx.arc(cx, cy, Math.max(3, rxLensPx), 0, Math.PI * 2); spotCtx.fill(); spotCtx.stroke();
 
-        spotCtx.fillStyle = '#fff';
-        spotCtx.font = '11px "JetBrains Mono"';
+        spotCtx.fillStyle = COLORS.text;
+        spotCtx.font = '11px "IBM Plex Mono"';
         spotCtx.fillText(`W: ${(simState.spotW_m * 100).toFixed(1)} cm`, cx + rxPx + 8, cy + 4);
         spotCtx.fillText(`H: ${(simState.spotH_m * 100).toFixed(1)} cm`, cx - 35, cy - ryPx - 8);
-        spotCtx.fillStyle = '#ffb703';
-        spotCtx.font = '10px "JetBrains Mono"';
+        spotCtx.fillStyle = COLORS.dim;
+        spotCtx.font = '10px "IBM Plex Mono"';
         spotCtx.fillText(`● RX Lens (${simState.dRxMm}mm)`, 15, h - 15);
+    }
+
+    // ------------------------------------------------------------------
+    // Beam-path strip (optical train status)
+    // ------------------------------------------------------------------
+    let pulseTimer = null;
+
+    function updateBeamStrip({ tx, rx, safetyWorst }) {
+        const strip = $('beamStrip');
+        if (!strip) return;
+        $('beamDiode').innerText = `${tx.diodePeakPowerW.toFixed(1)} W`;
+        $('beamAtmo').innerText = `${(rx.tau * 100).toFixed(1)}%`;
+        $('beamRx').innerText = rx.rxPowerW >= 1e-3
+            ? `${(rx.rxPowerW * 1000).toFixed(2)} mW` : `${(rx.rxPowerW * 1e6).toFixed(2)} µW`;
+        strip.classList.toggle('hazard', safetyWorst.classification !== '1');
+    }
+
+    function pulseBeam() {
+        const strip = $('beamStrip');
+        if (!strip) return;
+        strip.classList.remove('pulse');
+        void strip.offsetWidth; // restart the animation
+        strip.classList.add('pulse');
+        if (pulseTimer) clearTimeout(pulseTimer);
+        pulseTimer = setTimeout(() => strip.classList.remove('pulse'), 750);
     }
 
     // ------------------------------------------------------------------
@@ -361,5 +405,5 @@ Sim.Viz = (function () {
         updateSnrChart(p, tx, rx, worstRatio);
     }
 
-    return { init, setSimState, setShooting, redraw, updateCharts };
+    return { init, setSimState, setShooting, redraw, updateCharts, updateBeamStrip, pulseBeam };
 })();

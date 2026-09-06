@@ -164,17 +164,18 @@
         if (mode === 'single') { show.ctrlMainFocal = true; badge = 'Single Collimator Lens'; }
         else if (mode === 'fac') { show.ctrlMainFocal = true; show.ctrlFacFocal = true; badge = 'FAC + Main Collimator'; }
         else if (mode === 'anamorphic') { show.ctrlFocalSlow = true; show.ctrlFocalFast = true; badge = 'Anamorphic Cylindrical Pair'; }
-        Object.entries(show).forEach(([id, vis]) => { $(id).style.display = vis ? 'block' : 'none'; });
-        $('ctrlDivManual').style.display = mode === 'manual' ? 'block' : 'none';
+        // '' (not 'block') so the .collapsed CSS rule can still hide these
+        Object.entries(show).forEach(([id, vis]) => { $(id).style.display = vis ? '' : 'none'; });
+        $('ctrlDivManual').style.display = mode === 'manual' ? '' : 'none';
         $('opticsBadge').innerText = badge;
     }
 
     function refreshControlUI() {
         updateOpticsModeUI();
         const agc = inputs.agcMode.value === 'agc';
-        $('ctrlTiaGain').style.display = agc ? 'none' : 'block';
-        $('ctrlAgcTarget').style.display = agc ? 'block' : 'none';
-        $('ctrlVisibility').style.display = inputs.weatherPreset.value === 'custom' ? 'block' : 'none';
+        $('ctrlTiaGain').style.display = agc ? 'none' : '';
+        $('ctrlAgcTarget').style.display = agc ? '' : 'none';
+        $('ctrlVisibility').style.display = inputs.weatherPreset.value === 'custom' ? '' : 'none';
     }
 
     function populateWeatherSelects() {
@@ -225,11 +226,11 @@
         const periodMs = 1000 / p.framesPerS;
         const pulsesPerS = p.bitsPerFrame * p.framesPerS;
         $('calcBitPeriod').innerText = bitPeriodUs.toFixed(0);
-        $('protocolInfo').innerText =
+        $('protocolInfo').innerHTML =
             `Frame: ${p.bitsPerFrame} bits = ${frameMs.toFixed(1)} ms &bull; period: ${periodMs.toFixed(1)} ms &bull; ${pulsesPerS.toLocaleString()} pulses/s`;
 
         // Divergence breakdown readout (geometric vs diffraction per axis)
-        $('divInfo').innerText =
+        $('divInfo').innerHTML =
             `θ_out slow ${tx.divOutSlowMrad.toFixed(2)} mrad (geom ${tx.divGeomSlowMrad.toFixed(2)} + diffr ${tx.divDiffSlowMrad.toFixed(2)}) &bull; ` +
             `fast ${tx.divOutFastMrad.toFixed(2)} mrad (geom ${tx.divGeomFastMrad.toFixed(2)} + diffr ${tx.divDiffFastMrad.toFixed(2)})`;
 
@@ -306,6 +307,7 @@
         });
         Sim.Viz.redraw();
         Sim.Viz.updateCharts(p, tx, rx, combinedRatio);
+        Sim.Viz.updateBeamStrip({ tx, rx, safetyWorst });
     }
 
     // ------------------------------------------------------------------
@@ -938,7 +940,7 @@
 
     inputs.opticsMode.addEventListener('change', () => { updateOpticsModeUI(); updateSimulation(); });
     inputs.weatherPreset.addEventListener('change', () => {
-        $('ctrlVisibility').style.display = inputs.weatherPreset.value === 'custom' ? 'block' : 'none';
+        $('ctrlVisibility').style.display = inputs.weatherPreset.value === 'custom' ? '' : 'none';
         updateSimulation();
     });
 
@@ -968,6 +970,7 @@
         if (frameInFlight) return;
         frameInFlight = true;
         Sim.Viz.setShooting(true);
+        Sim.Viz.pulseBeam();
         updateSimulation();
         setTimeout(() => {
             Sim.Viz.setShooting(false);
