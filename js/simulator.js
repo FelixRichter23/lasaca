@@ -15,6 +15,8 @@
     // ------------------------------------------------------------------
     const $ = id => document.getElementById(id);
 
+    let aimLastBest = null;
+
     const inputs = {
         driveCurrent: $('driveCurrent'),
         pulseWidth: $('pulseWidth'),
@@ -71,25 +73,6 @@
         aimTarget3: $('aimTarget3'),
         aimUnit3: $('aimUnit3')
     };
-
-    let rayCanvas, rayCtx, spotCanvas, spotCtx;
-    let rawChart, filteredChart, snrChart;
-    let isShooting = false;
-    let simState = {};
-
-    // Deterministic protocol frame: 8-bit sync 0x7E + pseudo-random payload (LCG).
-    // Regenerated (cached) when the pulses-per-frame setting changes.
-    const frameCache = {};
-    function genFrame(n) {
-        if (frameCache[n]) return frameCache[n];
-        const bits = [0, 1, 1, 1, 1, 1, 1, 0];
-        let seed = 0xBEEF;
-        while (bits.length < n) {
-            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-            bits.push((seed >> 16) & 1);
-        }
-        return (frameCache[n] = bits.slice(0, n));
-    }
 
     // ------------------------------------------------------------------
     // Parameter bundle
@@ -150,13 +133,6 @@
         return Number.isFinite(v) && v > 0 ? v : null;
     }
 
-    /** Effective drive current under the selected single-fault condition (§5.1). */
-    function effCurrent(p) {
-        if (p.faultMode === 'plus10') return Math.min(C.DIODE.MAX_DRIVE_CURRENT_A, p.iForward * C.DIODE.FAULT_CURRENT_MULT);
-        if (p.faultMode === 'short') return C.DIODE.MAX_DRIVE_CURRENT_A;
-        return p.iForward;
-    }
-
     /**
      * Class-1 current limit expressed in normal-mode slider units.
      * Sim.Safety.solveMaxClass1 works in whichever domain the worst case
@@ -178,80 +154,7 @@
     }
 
     // ------------------------------------------------------------------
-    // Charts
-    // ------------------------------------------------------------------
-    function initCharts() {
-        Chart.defaults.color = '#94a3b8';
-        Chart.defaults.font.family = "'JetBrains Mono', monospace";
-
-        const commonScales = {
-            x: { title: { display: true, text: 'Time (µs)' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-            y: {
-                title: { display: true, text: 'Voltage (V)' },
-                grid: { color: 'rgba(255,255,255,0.05)' },
-                suggestedMin: -0.1, suggestedMax: 2.0
-            }
-        };
-        const commonOptions = {
-            responsive: true, maintainAspectRatio: false,
-            animation: { duration: 0 },
-            plugins: { legend: { display: false } }
-        };
-
-        rawChart = new Chart($('rawChart').getContext('2d'), {
-            type: 'line', data: { labels: [], datasets: [] },
-            options: { ...commonOptions, scales: JSON.parse(JSON.stringify(commonScales)) }
-        });
-        filteredChart = new Chart($('filteredChart').getContext('2d'), {
-            type: 'line', data: { labels: [], datasets: [] },
-            options: { ...commonOptions, scales: JSON.parse(JSON.stringify(commonScales)) }
-        });
-        snrChart = new Chart($('snrChart').getContext('2d'), {
-            type: 'line', data: { labels: [], datasets: [] },
-            options: {
-                responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
-                plugins: { legend: { display: true, labels: { boxWidth: 12 } } },
-                scales: {
-                    x: { title: { display: true, text: 'Distance (m)' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-                    y: { title: { display: true, text: 'SNR (dB)' }, grid: { color: 'rgba(255,255,255,0.05)' } }
-                }
-            }
-        });
-    }
-
-    // ------------------------------------------------------------------
-    // Canvases
-    // ------------------------------------------------------------------
-    function initCanvases() {
-        rayCanvas = $('rayCanvas'); rayCtx = rayCanvas.getContext('2d');
-        spotCanvas = $('spotCanvas'); spotCtx = spotCanvas.getContext('2d');
-
-        function resize() {
-            const dpr = window.devicePixelRatio || 1;
-            [[rayCanvas, rayCtx, drawRayTracer], [spotCanvas, spotCtx, drawSpotProfile]]
-                .forEach(([cv, ctx, draw]) => {
-                    if (!cv || !cv.parentElement) return;
-                    const rect = cv.parentElement.getBoundingClientRect();
-                    if (rect.width > 0 && rect.height > 0) {
-                        cv.width = rect.width * dpr;
-                        cv.height = rect.height * dpr;
-                        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                        draw();
-                    }
-                });
-        }
-        if (window.ResizeObserver) {
-            const ro = new ResizeObserver(() => window.requestAnimationFrame(resize));
-            [rayCanvas, spotCanvas].forEach(cv => cv && cv.parentElement && ro.observe(cv.parentElement));
-            const mc = document.querySelector('.main-content');
-            if (mc) ro.observe(mc);
-        }
-        window.addEventListener('resize', () => window.requestAnimationFrame(resize));
-        setTimeout(resize, 50);
-    }
-
-    // ------------------------------------------------------------------
-    // Optics-mode control visibility
+    // Control visibility (optics mode, AGC, custom weather)
     // ------------------------------------------------------------------
     function updateOpticsModeUI() {
         const mode = inputs.opticsMode.value;
@@ -263,6 +166,27 @@
         Object.entries(show).forEach(([id, vis]) => { $(id).style.display = vis ? 'block' : 'none'; });
         $('ctrlDivManual').style.display = mode === 'manual' ? 'block' : 'none';
         $('opticsBadge').innerText = badge;
+    }
+
+    function refreshControlUI() {
+        updateOpticsModeUI();
+        const agc = inputs.agcMode.value === 'agc';
+        $('ctrlTiaGain').style.display = agc ? 'none' : 'block';
+        $('ctrlAgcTarget').style.display = agc ? 'block' : 'none';
+        $('ctrlVisibility').style.display = inputs.weatherPreset.value === 'custom' ? 'block' : 'none';
+    }
+
+    function populateWeatherSelects() {
+        const options = Object.entries(Sim.Atmosphere.WEATHER_PRESETS)
+            .map(([val, pr]) => `<option value="${val}">${pr.label}</option>`).join('');
+        inputs.weatherPreset.innerHTML = options + '<option value="custom">Custom (slider below)</option>';
+        inputs.weatherPreset.value = 'clear';
+        for (let i = 1; i <= 3; i++) {
+            inputs[`aimWeather${i}`].innerHTML = options;
+        }
+        inputs.aimWeather1.value = 'fog';
+        inputs.aimWeather2.value = 'clear';
+        inputs.aimWeather3.value = 'clear';
     }
 
     // ------------------------------------------------------------------
@@ -283,15 +207,9 @@
 
         // Safety: classification must hold under normal AND single-fault
         // conditions (IEC 60825-1 §5.1). Evaluate both, take the worst.
-        const pFault = { ...p, iForward: effCurrent(p) };
-        const txFault = p.faultMode === 'normal' ? tx : Sim.Optics.computeTxBeam(pFault);
-        const safetyNormal = Sim.Safety.classify(p, tx);
-        const safetyFault = p.faultMode === 'normal' ? safetyNormal : Sim.Safety.classify(pFault, txFault);
-        const worstIsFault = safetyFault.worstRatio > safetyNormal.worstRatio;
-        const safetyWorst = worstIsFault ? safetyFault : safetyNormal;
-        const safetyView = p.faultMode === 'normal' ? safetyNormal : safetyFault;
-        const txWorst = worstIsFault ? txFault : tx;
-        const pWorst = worstIsFault ? pFault : p;
+        const se = Sim.Safety.classifyWithFault(p, tx);
+        const { worst: safetyWorst, view: safetyView, worstIsFault,
+                txWorst, pWorst, txFault } = se;
         const combinedRatio = safetyWorst.worstRatio;
 
         const solver = class1SliderLimit(pWorst, txWorst, safetyWorst, worstIsFault, p.faultMode);
@@ -304,9 +222,10 @@
         const bitPeriodUs = 1e3 / p.pulseFreqKHz;
         const frameMs = bitPeriodUs * p.bitsPerFrame / 1000;
         const periodMs = 1000 / p.framesPerS;
+        const pulsesPerS = p.bitsPerFrame * p.framesPerS;
         $('calcBitPeriod').innerText = bitPeriodUs.toFixed(0);
         $('protocolInfo').innerText =
-            `Frame: ${p.bitsPerFrame} bits = ${frameMs.toFixed(1)} ms &bull; period: ${periodMs.toFixed(1)} ms &bull; ${(p.bitsPerFrame * p.framesPerS).toLocaleString()} pulses/s`;
+            `Frame: ${p.bitsPerFrame} bits = ${frameMs.toFixed(1)} ms &bull; period: ${periodMs.toFixed(1)} ms &bull; ${pulsesPerS.toLocaleString()} pulses/s`;
 
         // Divergence breakdown readout (geometric vs diffraction per axis)
         $('divInfo').innerText =
@@ -373,23 +292,19 @@
         $('spotAspectBadge').innerText = `Aspect: ${aspect}:1`;
 
         // ---- Safety panel -------------------------------------------------
-        renderSafetyPanel(p, tx, { safetyNormal, safetyFault, safetyWorst, safetyView, worstIsFault }, solver, nohd);
+        renderSafetyPanel(p, tx, se, solver, nohd);
 
         // ---- RX electronics chain -----------------------------------------
         renderChain(p, rx);
 
-        // ---- Canvas state -------------------------------------------------
-        simState = {
+        // ---- Canvas + charts ----------------------------------------------
+        Sim.Viz.setSimState({
             opticsMode: p.opticsMode, fMainMm: p.fMainMm, dMainMm: p.dMainMm, fFacMm: p.fFacMm,
             rawDivFastDeg: p.rawDivFastDeg, lensCaptureEff: tx.lensCaptureEff,
             spotW_m: rx.spot.spotW_m, spotH_m: rx.spot.spotH_m, dRxMm: p.dRxMm
-        };
-        drawRayTracer();
-        drawSpotProfile();
-
-        // ---- Charts -------------------------------------------------------
-        updateTimeSeriesCharts(p, rx);
-        updateSnrChart(p, tx, rx, combinedRatio);
+        });
+        Sim.Viz.redraw();
+        Sim.Viz.updateCharts(p, tx, rx, combinedRatio);
     }
 
     // ------------------------------------------------------------------
@@ -401,8 +316,9 @@
         return `<span class="ratio ${cls}">${r.toFixed(2)}×</span><small>${margin >= 0 ? '+' : ''}${margin.toFixed(1)} dB</small>`;
     }
 
-    function renderSafetyPanel(p, tx, modes, solver, nohd) {
-        const { safetyNormal, safetyFault, safetyWorst, safetyView, worstIsFault } = modes;
+    function renderSafetyPanel(p, tx, se, solver, nohd) {
+        const { normal: safetyNormal, fault: safetyFault, worst: safetyWorst,
+                view: safetyView, worstIsFault } = se;
         const safety = safetyView; // per-condition table shows the selected mode
 
         const badge = $('classBadge');
@@ -440,6 +356,7 @@
             `N=${safety.nEff.toLocaleString()}`;
 
         // Facts row
+        const pulsesPerS = p.bitsPerFrame * p.framesPerS;
         const ep = safety.effectivePulse;
         const epTxt = ep.grouped
             ? `frame ${(ep.frameDur * 1e6).toFixed(0)} µs (×${ep.eFactor}, ISH1 §5 group)`
@@ -453,7 +370,7 @@
             <div><small>Tcrit / grouping</small><strong>${(ep.tcrit * 1e6).toFixed(1)} µs / ${ep.grouped ? 'frame grouped' : 'not required'}</strong></div>
             <div><small>T2 / eval duration</small><strong>${safety.t2.toFixed(1)} s / ${safety.evalDur.toFixed(1)} s</strong></div>
             <div><small>λ (temp drift)</small><strong>${tx.lambdaNm.toFixed(1)} nm</strong></div>
-            <div><small>Protocol rate</small><strong>${(p.bitsPerFrame * p.framesPerS).toLocaleString()} pulses/s</strong></div>
+            <div><small>Protocol rate</small><strong>${pulsesPerS.toLocaleString()} pulses/s</strong></div>
             <div><small>α candidate used</small><strong>${safety.alphaMrad.toFixed(2)} of ${safety.alphaRealMrad.toFixed(2)} mrad</strong></div>`;
 
         // Conditions table
@@ -516,253 +433,6 @@
     }
 
     // ------------------------------------------------------------------
-    // Time-series charts (one 65-bit frame)
-    // ------------------------------------------------------------------
-    function updateTimeSeriesCharts(p, rx) {
-        const frame = genFrame(p.bitsPerFrame);
-        const bitPeriodS = 1 / (p.pulseFreqKHz * 1e3);
-        const frameS = bitPeriodS * (frame.length + 2);
-        // Pulse width exaggerated for display when pulses would be sub-pixel
-        const dispPulseS = Math.max(p.pulseWidthNs * 1e-9, bitPeriodS * 0.03);
-        const riseS = Math.min(p.riseTimeNs * 1e-9, dispPulseS / 2);
-
-        const nSamples = 700;
-        const dt = frameS / nSamples;
-        const useMs = frameS > 2e-3;
-        const labels = [], rawData = [], filtData = [], satData = [];
-
-        for (let i = 0; i <= nSamples; i++) {
-            const t = i * dt;
-            labels.push(+(useMs ? t * 1e3 : t * 1e6).toFixed(2));
-            satData.push(C.DETECTOR.SYSTEM_VOLTAGE_LIMIT_V);
-
-            const noise = (Math.random() - 0.5) * rx.vNoiseRMS * 3;
-            const bitIdx = Math.floor(t / bitPeriodS) - 1;
-            let amp = 0;
-            if (isShooting && bitIdx >= 0 && bitIdx < frame.length && frame[bitIdx] === 1) {
-                const tb = t % bitPeriodS;
-                if (tb < riseS) amp = rx.vSignal * (tb / riseS);
-                else if (tb < dispPulseS) amp = rx.vSignal;
-                else if (tb < dispPulseS + riseS) amp = rx.vSignal * (1 - (tb - dispPulseS) / riseS);
-            }
-
-            let vRaw = rx.vSolarTIA + amp + noise;
-            vRaw = Math.min(C.DETECTOR.SYSTEM_VOLTAGE_LIMIT_V, Math.max(0, vRaw));
-            rawData.push(vRaw);
-
-            let vFilt;
-            if (p.acCoupling === 'after_tia') {
-                vFilt = amp + noise;
-                if (rx.vSolarTIA >= C.DETECTOR.SYSTEM_VOLTAGE_LIMIT_V) vFilt = noise;
-                else if (rx.vSolarTIA + amp > C.DETECTOR.SYSTEM_VOLTAGE_LIMIT_V) {
-                    vFilt = Math.max(0, amp - (rx.vSolarTIA + amp - C.DETECTOR.SYSTEM_VOLTAGE_LIMIT_V)) + noise;
-                }
-            } else {
-                vFilt = vRaw;
-            }
-            filtData.push(vFilt);
-        }
-
-        rawChart.options.scales.x.title.text = useMs ? 'Time (ms)' : 'Time (µs)';
-        filteredChart.options.scales.x.title.text = useMs ? 'Time (ms)' : 'Time (µs)';
-        rawChart.options.scales.y.max = Math.max(C.DETECTOR.SYSTEM_VOLTAGE_LIMIT_V + 0.5, (rx.vSolarTIA + rx.vSignal) * 1.3, 1);
-        filteredChart.options.scales.y.max = Math.max(1, (rx.vSignal + rx.vNoiseRMS * 3) * 1.4);
-
-        rawChart.data.labels = labels;
-        rawChart.data.datasets = [
-            { label: 'Raw Sensor Voltage', data: rawData, borderColor: '#ff3366', backgroundColor: 'rgba(255,51,102,0.1)', borderWidth: 1.5, fill: true, tension: 0.1, pointRadius: 0 },
-            { label: 'Op-Amp Saturation (5V)', data: satData, borderColor: 'rgba(255,255,255,0.4)', borderWidth: 1, borderDash: [5, 5], fill: false, pointRadius: 0 }
-        ];
-        rawChart.update();
-
-        filteredChart.data.labels = labels;
-        filteredChart.data.datasets = [
-            { label: 'Filtered Signal (Data Frame)', data: filtData, borderColor: '#00e5ff', backgroundColor: 'rgba(0,229,255,0.1)', borderWidth: 1.5, fill: true, tension: 0.1, pointRadius: 0 }
-        ];
-        filteredChart.update();
-    }
-
-    // ------------------------------------------------------------------
-    // SNR vs distance chart (current + Class-1 limited)
-    // ------------------------------------------------------------------
-    function updateSnrChart(p, tx, rx, worstRatio) {
-        const dists = [], cur = [], lim = [], thr = [];
-        const scale = Math.min(1, 1 / worstRatio);
-        const txLim = { ...tx, pTxEffW: tx.pTxEffW * scale };
-
-        for (let d = 10; d <= 500; d += 10) {
-            dists.push(d);
-            cur.push(+Sim.Receiver.linkBudget(p, tx, d).snrDb.toFixed(2));
-            lim.push(+Sim.Receiver.linkBudget(p, txLim, d).snrDb.toFixed(2));
-            thr.push(p.minSnrDb);
-        }
-
-        const pointData = dists.map(d => d === p.distM ? rx.snrDb : null);
-
-        snrChart.data.labels = dists;
-        snrChart.data.datasets = [
-            { label: 'SNR (current power)', data: cur, borderColor: '#00ff88', backgroundColor: 'rgba(0,255,136,0.08)', borderWidth: 2, fill: true, tension: 0.2, pointRadius: 0 },
-            { label: 'SNR (Class-1 limited)', data: lim, borderColor: '#ffb703', borderWidth: 2, borderDash: [6, 4], fill: false, tension: 0.2, pointRadius: 0 },
-            { label: 'Min. usable SNR', data: thr, borderColor: 'rgba(255,255,255,0.35)', borderWidth: 1, borderDash: [3, 4], fill: false, pointRadius: 0 },
-            { label: 'Current setup', data: pointData, borderColor: '#ff3366', backgroundColor: '#ff3366', pointRadius: 6, pointHoverRadius: 8, type: 'scatter' }
-        ];
-        snrChart.update();
-    }
-
-    // ------------------------------------------------------------------
-    // Ray tracer canvas
-    // ------------------------------------------------------------------
-    function drawRayTracer() {
-        if (!rayCtx || !rayCanvas) return;
-        if (!Number.isFinite(simState.dMainMm) || !Number.isFinite(simState.lensCaptureEff)) return;
-        const w = rayCanvas.parentElement.clientWidth;
-        const h = rayCanvas.parentElement.clientHeight;
-        rayCtx.clearRect(0, 0, w, h);
-
-        rayCtx.strokeStyle = 'rgba(255,255,255,0.04)';
-        rayCtx.lineWidth = 1;
-        for (let x = 0; x < w; x += 30) { rayCtx.beginPath(); rayCtx.moveTo(x, 0); rayCtx.lineTo(x, h); rayCtx.stroke(); }
-        for (let y = 0; y < h; y += 30) { rayCtx.beginPath(); rayCtx.moveTo(0, y); rayCtx.lineTo(w, y); rayCtx.stroke(); }
-
-        const cy = h / 2;
-        rayCtx.strokeStyle = 'rgba(255,255,255,0.2)';
-        rayCtx.setLineDash([4, 4]);
-        rayCtx.beginPath(); rayCtx.moveTo(20, cy); rayCtx.lineTo(w - 20, cy); rayCtx.stroke();
-        rayCtx.setLineDash([]);
-
-        const diodeX = 50, mainLensX = w * 0.65, facX = diodeX + 45;
-
-        rayCtx.fillStyle = '#ff3366';
-        rayCtx.fillRect(diodeX - 12, cy - 18, 12, 36);
-        rayCtx.fillStyle = '#ffffff';
-        rayCtx.fillRect(diodeX - 2, cy - 6, 4, 12);
-        rayCtx.fillStyle = '#94a3b8';
-        rayCtx.font = '10px "JetBrains Mono"';
-        rayCtx.fillText('Diode (905nm)', diodeX - 25, cy + 32);
-
-        const hasFAC = simState.opticsMode === 'fac';
-        const mainLensHeight = Math.min(h - 40, (simState.dMainMm / 25) * 80);
-
-        if (hasFAC) {
-            rayCtx.fillStyle = 'rgba(0,229,255,0.25)';
-            rayCtx.strokeStyle = '#00e5ff';
-            rayCtx.lineWidth = 2;
-            rayCtx.beginPath();
-            rayCtx.ellipse(facX, cy, 6, 22, 0, 0, Math.PI * 2);
-            rayCtx.fill(); rayCtx.stroke();
-            rayCtx.fillStyle = '#00e5ff';
-            rayCtx.fillText(`FAC (f=${simState.fFacMm}mm)`, facX - 25, cy - 28);
-        }
-
-        rayCtx.fillStyle = 'rgba(0,255,136,0.2)';
-        rayCtx.strokeStyle = '#00ff88';
-        rayCtx.lineWidth = 2;
-        rayCtx.beginPath();
-        rayCtx.ellipse(mainLensX, cy, 10, mainLensHeight / 2, 0, 0, Math.PI * 2);
-        rayCtx.fill(); rayCtx.stroke();
-        rayCtx.fillStyle = '#00ff88';
-        rayCtx.fillText(`Lens Ø${simState.dMainMm}mm (f=${simState.fMainMm}mm)`, mainLensX - 45, cy - (mainLensHeight / 2) - 8);
-
-        const numRays = 7;
-        const rawFastAngle = (simState.rawDivFastDeg * Math.PI) / 180;
-        for (let i = 0; i < numRays; i++) {
-            const factor = (i - (numRays - 1) / 2) / ((numRays - 1) / 2);
-            const angle = factor * (rawFastAngle / 2);
-
-            if (hasFAC) {
-                const yAtFac = cy + Math.tan(angle) * (facX - diodeX) * 2.5;
-                rayCtx.strokeStyle = 'rgba(255,51,102,0.7)';
-                rayCtx.lineWidth = 1.5;
-                rayCtx.beginPath(); rayCtx.moveTo(diodeX, cy); rayCtx.lineTo(facX, yAtFac); rayCtx.stroke();
-
-                const yAtMain = yAtFac;
-                const captured = Math.abs(yAtMain - cy) <= (mainLensHeight / 2);
-                rayCtx.strokeStyle = captured ? 'rgba(0,229,255,0.7)' : 'rgba(255,51,102,0.4)';
-                rayCtx.beginPath(); rayCtx.moveTo(facX, yAtFac); rayCtx.lineTo(mainLensX, yAtMain); rayCtx.stroke();
-                rayCtx.strokeStyle = captured ? '#00e5ff' : 'rgba(255,51,102,0.3)';
-                rayCtx.beginPath(); rayCtx.moveTo(mainLensX, yAtMain); rayCtx.lineTo(w - 20, yAtMain + factor * 3); rayCtx.stroke();
-            } else {
-                const yAtMain = cy + Math.tan(angle) * (mainLensX - diodeX) * 0.8;
-                const captured = Math.abs(yAtMain - cy) <= (mainLensHeight / 2);
-                if (captured) {
-                    rayCtx.strokeStyle = '#00e5ff';
-                    rayCtx.lineWidth = 1.5;
-                    rayCtx.beginPath(); rayCtx.moveTo(diodeX, cy); rayCtx.lineTo(mainLensX, yAtMain); rayCtx.lineTo(w - 20, yAtMain * 0.95 + cy * 0.05); rayCtx.stroke();
-                } else {
-                    rayCtx.strokeStyle = '#ff3366';
-                    rayCtx.lineWidth = 1.2;
-                    rayCtx.setLineDash([4, 4]);
-                    rayCtx.beginPath(); rayCtx.moveTo(diodeX, cy); rayCtx.lineTo(mainLensX + 20, yAtMain * 1.05); rayCtx.stroke();
-                    rayCtx.setLineDash([]);
-                }
-            }
-        }
-
-        rayCtx.fillStyle = '#fff';
-        rayCtx.font = '11px "JetBrains Mono"';
-        rayCtx.fillText(`Optical Transmission: ${(simState.lensCaptureEff * 100).toFixed(1)}%`, w - 200, 25);
-    }
-
-    // ------------------------------------------------------------------
-    // Spot profile canvas
-    // ------------------------------------------------------------------
-    function drawSpotProfile() {
-        if (!spotCtx || !spotCanvas) return;
-        if (!Number.isFinite(simState.spotW_m) || !Number.isFinite(simState.spotH_m) ||
-            simState.spotW_m <= 0 || simState.spotH_m <= 0) return;
-        const w = spotCanvas.parentElement.clientWidth;
-        const h = spotCanvas.parentElement.clientHeight;
-        spotCtx.clearRect(0, 0, w, h);
-
-        const cx = w / 2, cy = h / 2;
-        spotCtx.strokeStyle = 'rgba(255,255,255,0.08)';
-        spotCtx.lineWidth = 1;
-        spotCtx.beginPath();
-        spotCtx.moveTo(cx, 10); spotCtx.lineTo(cx, h - 10);
-        spotCtx.moveTo(10, cy); spotCtx.lineTo(w - 10, cy);
-        spotCtx.stroke();
-
-        const scale = Math.min(w, h) / Math.max(1.0, Math.max(simState.spotW_m, simState.spotH_m) * 1.4);
-        [0.1, 0.25, 0.5, 1.0].forEach(radiusM => {
-            const rPx = radiusM * scale;
-            if (rPx < Math.min(w, h) / 2) {
-                spotCtx.strokeStyle = 'rgba(255,255,255,0.04)';
-                spotCtx.beginPath(); spotCtx.arc(cx, cy, rPx, 0, Math.PI * 2); spotCtx.stroke();
-                spotCtx.fillStyle = 'rgba(255,255,255,0.2)';
-                spotCtx.font = '9px "JetBrains Mono"';
-                spotCtx.fillText(`${radiusM * 100}cm`, cx + 4, cy - rPx + 10);
-            }
-        });
-
-        const rxPx = (simState.spotW_m / 2) * scale;
-        const ryPx = (simState.spotH_m / 2) * scale;
-        const grad = spotCtx.createRadialGradient(cx, cy, 2, cx, cy, Math.max(rxPx, ryPx));
-        grad.addColorStop(0, 'rgba(255,51,102,0.85)');
-        grad.addColorStop(0.5, 'rgba(0,229,255,0.45)');
-        grad.addColorStop(0.85, 'rgba(0,229,255,0.15)');
-        grad.addColorStop(1, 'transparent');
-        spotCtx.fillStyle = grad;
-        spotCtx.beginPath(); spotCtx.ellipse(cx, cy, rxPx, ryPx, 0, 0, Math.PI * 2); spotCtx.fill();
-        spotCtx.strokeStyle = '#00e5ff';
-        spotCtx.lineWidth = 1.5;
-        spotCtx.beginPath(); spotCtx.ellipse(cx, cy, rxPx, ryPx, 0, 0, Math.PI * 2); spotCtx.stroke();
-
-        const rxLensPx = ((simState.dRxMm * 1e-3) / 2) * scale;
-        spotCtx.fillStyle = 'rgba(255,183,3,0.7)';
-        spotCtx.strokeStyle = '#ffb703';
-        spotCtx.lineWidth = 2;
-        spotCtx.beginPath(); spotCtx.arc(cx, cy, Math.max(3, rxLensPx), 0, Math.PI * 2); spotCtx.fill(); spotCtx.stroke();
-
-        spotCtx.fillStyle = '#fff';
-        spotCtx.font = '11px "JetBrains Mono"';
-        spotCtx.fillText(`W: ${(simState.spotW_m * 100).toFixed(1)} cm`, cx + rxPx + 8, cy + 4);
-        spotCtx.fillText(`H: ${(simState.spotH_m * 100).toFixed(1)} cm`, cx - 35, cy - ryPx - 8);
-        spotCtx.fillStyle = '#ffb703';
-        spotCtx.font = '10px "JetBrains Mono"';
-        spotCtx.fillText(`● RX Lens (${simState.dRxMm}mm)`, 15, h - 15);
-    }
-
-    // ------------------------------------------------------------------
     // Presets
     // ------------------------------------------------------------------
     function setPreset(name) {
@@ -795,32 +465,25 @@
         } else if (name === 'class1') {
             $('presetClass1').classList.add('active');
             applyValues({ ...base, opticsMode: 'fac', focalMain: '100', focalFac: '1.0' });
-            updateOpticsModeUI();
+            refreshControlUI();
             applyClass1Solver();
             return;
         }
 
-        updateOpticsModeUI();
+        refreshControlUI();
         updateSimulation();
     }
 
     function applyValues(map) {
         Object.entries(map).forEach(([k, v]) => { if (inputs[k]) inputs[k].value = v; });
-        $('ctrlVisibility').style.display = inputs.weatherPreset.value === 'custom' ? 'block' : 'none';
     }
 
     /** Run the Class-1 solver (worst of normal + fault) and clamp the slider. */
     function applyClass1Solver() {
         const p = buildParams();
         const tx = Sim.Optics.computeTxBeam(p);
-        const pFault = { ...p, iForward: effCurrent(p) };
-        const txFault = p.faultMode === 'normal' ? tx : Sim.Optics.computeTxBeam(pFault);
-        const sN = Sim.Safety.classify(p, tx);
-        const sF = p.faultMode === 'normal' ? sN : Sim.Safety.classify(pFault, txFault);
-        const worstIsFault = sF.worstRatio > sN.worstRatio;
-        const worst = worstIsFault ? sF : sN;
-        const solver = class1SliderLimit(worstIsFault ? pFault : p, worstIsFault ? txFault : tx,
-            worst, worstIsFault, p.faultMode);
+        const se = Sim.Safety.classifyWithFault(p, tx);
+        const solver = class1SliderLimit(se.pWorst, se.txWorst, se.worst, se.worstIsFault, p.faultMode);
         inputs.driveCurrent.value = Math.min(10, Math.max(0.1, solver.maxCurrentA)).toFixed(1);
         updateSimulation();
     }
@@ -848,11 +511,7 @@
         if (opticsValues.emitterWidth) p.emitterWum = parseFloat(opticsValues.emitterWidth);
 
         const tx = Sim.Optics.computeTxBeam(p);
-        const pFault = { ...p, iForward: effCurrent(p) };
-        const txFault = p.faultMode === 'normal' ? tx : Sim.Optics.computeTxBeam(pFault);
-        const sN = Sim.Safety.classify(p, tx);
-        const sF = p.faultMode === 'normal' ? sN : Sim.Safety.classify(pFault, txFault);
-        const worst = sF.worstRatio > sN.worstRatio ? sF : sN;
+        const worst = Sim.Safety.classifyWithFault(p, tx).worst;
         const rx = Sim.Receiver.linkBudget(p, tx, p.distM);
         const chain = Sim.Receiver.evalChain(p, rx);
 
@@ -877,28 +536,23 @@
 
         let best = null;
         let bestEffort = null;
-        let idx = 0;
-        const BATCH = 16;
         status.className = 'auto-solve-status';
         status.innerText = 'Searching… 0 %';
 
-        function step() {
-            const end = Math.min(idx + BATCH, combos.length);
-            for (; idx < end; idx++) {
-                const [optics, iA] = combos[idx];
-                const r = evalAutoCandidate(pBase, optics.values, iA);
-                if (r.feasible && (!best || r.score > best.score ||
-                    (r.score === best.score && iA < best.iA))) {
-                    best = { ...r, iA, optics };
-                }
-                if (!bestEffort || r.score > bestEffort.score) {
-                    bestEffort = { ...r, iA, optics };
-                }
+        Sim.Search.run(combos, ([optics, iA]) => {
+            const r = evalAutoCandidate(pBase, optics.values, iA);
+            if (r.feasible && (!best || r.score > best.score ||
+                (r.score === best.score && iA < best.iA))) {
+                best = { ...r, iA, optics };
             }
-            status.innerText = `Searching… ${Math.round(idx / combos.length * 100)} %`;
-            if (idx < combos.length) { setTimeout(step, 0); return; }
-            finish();
-        }
+            if (!bestEffort || r.score > bestEffort.score) {
+                bestEffort = { ...r, iA, optics };
+            }
+        }, {
+            batchSize: 16,
+            onProgress: pct => { status.innerText = `Searching… ${pct} %`; },
+            onDone: finish
+        });
 
         function finish() {
             autoSolveRunning = false;
@@ -923,8 +577,6 @@
                     `${reasons.join(', ')}. Try a larger RX lens, shorter distance, better weather, or lower min SNR.`;
             }
         }
-
-        setTimeout(step, 0);
     }
 
     // ------------------------------------------------------------------
@@ -957,10 +609,7 @@
 
     function applyConfigValues(values) {
         applyValues(values);
-        updateOpticsModeUI();
-        const agc = inputs.agcMode.value === 'agc';
-        $('ctrlTiaGain').style.display = agc ? 'none' : 'block';
-        $('ctrlAgcTarget').style.display = agc ? 'block' : 'none';
+        refreshControlUI();
         updateSimulation();
     }
 
@@ -1216,7 +865,7 @@
     }
 
     function renderAimResults(best, anchors) {
-        window._aimLastBest = best;
+        aimLastBest = best;
         const p = best.p;
         const opticsName = p.opticsMode === 'fac' ? `FAC + ${p.fMainMm} mm` :
             p.opticsMode === 'anamorphic' ? `Anamorphic (${p.fSlowMm}/${p.fFastMm} mm)` :
@@ -1243,27 +892,27 @@
     }
 
     function applyAimWinner() {
-        const best = window._aimLastBest;
+        const best = aimLastBest;
         if (!best) return;
         const p = best.p;
-        inputs.driveCurrent.value = p.iForward.toFixed(1);
-        inputs.opticsMode.value = p.opticsMode;
-        inputs.focalMain.value = p.fMainMm;
-        inputs.lensDiameterTx.value = p.dMainMm;
-        if (p.opticsMode === 'fac') inputs.focalFac.value = p.fFacMm;
+        const values = {
+            driveCurrent: p.iForward.toFixed(1),
+            opticsMode: p.opticsMode,
+            focalMain: String(p.fMainMm),
+            lensDiameterTx: String(p.dMainMm),
+            lensDiameterRx: String(p.dRxMm),
+            tiaGain: String(p.gain),
+            agcMode: p.agcOn ? 'agc' : 'manual',
+            acCoupling: p.acCoupling
+        };
+        if (p.opticsMode === 'fac') values.focalFac = String(p.fFacMm);
         if (p.opticsMode === 'anamorphic') {
-            inputs.focalSlow.value = p.fSlowMm;
-            inputs.focalFast.value = p.fFastMm;
+            values.focalSlow = String(p.fSlowMm);
+            values.focalFast = String(p.fFastMm);
         }
-        inputs.lensDiameterRx.value = p.dRxMm;
-        inputs.tiaGain.value = p.gain;
-        inputs.agcMode.value = p.agcOn ? 'agc' : 'manual';
-        if (p.agcOn && p.agcTargetV > 0) inputs.agcTarget.value = p.agcTargetV;
-        inputs.acCoupling.value = p.acCoupling;
-        updateOpticsModeUI();
-        const agc = inputs.agcMode.value === 'agc';
-        $('ctrlTiaGain').style.display = agc ? 'none' : 'block';
-        $('ctrlAgcTarget').style.display = agc ? 'block' : 'none';
+        if (p.agcOn && p.agcTargetV > 0) values.agcTarget = String(p.agcTargetV);
+        applyValues(values);
+        refreshControlUI();
         updateSimulation();
         $('aimStatus').innerText = 'Setup applied to simulator.';
     }
@@ -1292,7 +941,7 @@
         updateSimulation();
     });
 
-    // Bit-rate slider ↔ numeric input sync
+    // Bit-rate slider <-> numeric input sync
     inputs.pulseFreq.addEventListener('input', () => { inputs.pulseFreqNum.value = inputs.pulseFreq.value; });
     inputs.pulseFreqNum.addEventListener('input', () => {
         const v = Math.min(10, Math.max(0.5, parseFloat(inputs.pulseFreqNum.value) || 0.5));
@@ -1300,11 +949,7 @@
     });
 
     // AGC mode toggle: hide manual gain slider, show AGC target
-    inputs.agcMode.addEventListener('change', () => {
-        const agc = inputs.agcMode.value === 'agc';
-        $('ctrlTiaGain').style.display = agc ? 'none' : 'block';
-        $('ctrlAgcTarget').style.display = agc ? 'block' : 'none';
-    });
+    inputs.agcMode.addEventListener('change', refreshControlUI);
 
     Object.values(inputs).forEach(input => {
         if (input !== inputs.weatherPreset && input !== inputs.opticsMode) {
@@ -1313,9 +958,9 @@
     });
 
     $('btnShoot').addEventListener('click', () => {
-        isShooting = true;
+        Sim.Viz.setShooting(true);
         updateSimulation();
-        setTimeout(() => { isShooting = false; updateSimulation(); }, 1500);
+        setTimeout(() => { Sim.Viz.setShooting(false); updateSimulation(); }, 1500);
     });
     $('btnDefineAim').addEventListener('click', defineAim);
     $('btnApplyAim').addEventListener('click', applyAimWinner);
@@ -1327,9 +972,9 @@
     // ------------------------------------------------------------------
     initSidebarCollapse();
     initCollapsibles();
-    initCharts();
-    initCanvases();
-    updateOpticsModeUI();
+    populateWeatherSelects();
+    Sim.Viz.init();
+    refreshControlUI();
     renderSavedList();
     updateSimulation();
 })();
