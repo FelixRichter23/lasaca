@@ -6,19 +6,18 @@
     <title>Lasertag 905nm Optics, Link Budget & IEC 60825-1 Safety Simulator</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="app-container">
         <!-- Sidebar Controls -->
-        <aside class="sidebar glass-panel">
+        <aside class="sidebar">
             <div class="sidebar-header">
-                <div>
-                    <h2>LASERTAG SIM</h2>
-                    <span class="badge">905nm Optics &bull; Link Budget &bull; Class 1 Safety</span>
-                </div>
+                <h2>Control Deck</h2>
                 <button id="sidebarToggle" class="sidebar-toggle" title="Collapse sidebar">←</button>
             </div>
 
@@ -409,34 +408,6 @@
                 <div id="shareStatus" class="share-status"></div>
             </div>
 
-            <!-- Output Summary Box -->
-            <div class="math-summary">
-                <div class="stat-box" id="statBoxTrans">
-                    <span class="label">TX Lens Capture</span>
-                    <span class="value" id="outTxLensEff">85.0%</span>
-                </div>
-                <div class="stat-box success" id="statBoxSolar">
-                    <span class="label">Solar DC Offset</span>
-                    <span class="value" id="outSolarV">0.38 V</span>
-                </div>
-                <div class="stat-box success" id="statBoxSignal">
-                    <span class="label">Signal Peak</span>
-                    <span class="value" id="outSignalV">0.24 V</span>
-                </div>
-                <div class="stat-box" id="statBoxSnr">
-                    <span class="label">SNR (Approx)</span>
-                    <span class="value" id="outSnr">83.7 dB</span>
-                </div>
-                <div class="stat-box success" id="statBoxClass">
-                    <span class="label">IEC 60825-1 Class</span>
-                    <span class="value" id="outClass">1</span>
-                </div>
-                <div class="stat-box" id="statBoxMargin">
-                    <span class="label">Safety Margin</span>
-                    <span class="value" id="outMargin">0.0 dB</span>
-                </div>
-            </div>
-
             <button id="btnShoot" class="shoot-btn">Transmit Data Frame (65 bit)</button>
             <div class="auto-tx-row">
                 <label class="auto-tx-check"><input type="checkbox" id="autoTxEnabled"> Auto</label>
@@ -449,18 +420,75 @@
 
         <!-- Main Content Area -->
         <main class="main-content">
-            <header class="main-header glass-panel">
-                <div class="header-content">
-                    <h1>905nm Laser Diode, Optical Link Budget & Class-1 Safety Simulator</h1>
-                    <p>Physics simulation of OSRAM SPL PL90AT03 collimation, atmospheric propagation, BPW 34 FAS detection — and full IEC 60825-1:2014 (+ISH1) classification with Conditions 1 & 3.</p>
+            <!-- Instrument nameplate -->
+            <header class="nameplate">
+                <div class="nameplate-mark" title="IEC 60825 laser warning symbol">
+                    <img src="favicon.png" alt="Laser warning symbol">
+                </div>
+                <div class="nameplate-title">
+                    <h1>Lasertag Sim</h1>
+                    <span class="nameplate-sub">905nm Optical Link Budget &amp; IEC 60825-1 Safety Simulator</span>
+                </div>
+                <div class="nameplate-meta">
+                    <span>SPL PL90AT03</span>
+                    <span>BPW 34 FAS</span>
+                    <span>ISH1:2017</span>
                 </div>
             </header>
+
+            <!-- Beam-path strip: live status of the optical train -->
+            <section class="beam-strip" id="beamStrip" aria-label="Optical train status">
+                <div class="beam-node">
+                    <small>Diode Peak</small>
+                    <strong class="beam-value" id="beamDiode">&mdash;</strong>
+                </div>
+                <div class="beam-link"></div>
+                <div class="beam-node">
+                    <small>TX Capture</small>
+                    <strong class="beam-value" id="outTxLensEff">&mdash;</strong>
+                </div>
+                <div class="beam-link"></div>
+                <div class="beam-node">
+                    <small>Atmosphere &tau;</small>
+                    <strong class="beam-value" id="beamAtmo">&mdash;</strong>
+                </div>
+                <div class="beam-link"></div>
+                <div class="beam-node">
+                    <small>RX Power</small>
+                    <strong class="beam-value" id="beamRx">&mdash;</strong>
+                    <small class="beam-sub">SNR <span id="outSnr">&mdash;</span></small>
+                </div>
+                <div class="beam-link"></div>
+                <div class="beam-node">
+                    <small>TIA / AGC</small>
+                    <div class="stat-box success" id="statBoxSignal">
+                        <span class="label">Signal Peak</span>
+                        <span class="value" id="outSignalV">&mdash;</span>
+                    </div>
+                    <div class="stat-box success" id="statBoxSolar">
+                        <span class="label">Solar DC</span>
+                        <span class="value" id="outSolarV">&mdash;</span>
+                    </div>
+                </div>
+                <div class="beam-link"></div>
+                <div class="beam-node beam-verdict" id="beamNodeVerdict">
+                    <small>Verdict</small>
+                    <div class="stat-box success" id="statBoxClass">
+                        <span class="label">IEC Class</span>
+                        <span class="value" id="outClass">&mdash;</span>
+                    </div>
+                    <div class="stat-box" id="statBoxMargin">
+                        <span class="label">Margin</span>
+                        <span class="value" id="outMargin">&mdash;</span>
+                    </div>
+                </div>
+            </section>
 
             <!-- Dashboard Grid -->
             <div class="dashboard-grid">
 
                 <!-- Safety Classification Panel -->
-                <div class="panel glass-panel safety-panel" id="safetyPanel">
+                <div class="panel safety-panel" id="safetyPanel">
                     <div class="panel-header-flex">
                         <h3>IEC 60825-1:2014 Classification</h3>
                         <span class="class-badge" id="classBadge">CLASS 1</span>
@@ -523,8 +551,70 @@
                     </div>
                 </div>
 
+                <!-- Live Ray Tracer & Optics Schematic Panel -->
+                <div class="panel optics-panel">
+                    <div class="panel-header-flex">
+                        <h3>Transmitter Optical Train & Ray Tracing</h3>
+                        <span class="lens-badge" id="opticsBadge">FAC + Collimator</span>
+                    </div>
+                    <p class="desc">Interactive optical ray path. Amber rays are captured and collimated by the lens; faint dashed rays represent light lost due to aperture clipping.</p>
+                    <div class="canvas-container">
+                        <canvas id="rayCanvas"></canvas>
+                    </div>
+                </div>
+
+                <!-- Target Spot Profile Panel -->
+                <div class="panel spot-panel">
+                    <div class="panel-header-flex">
+                        <h3>Target Spot Profile (at <span id="lblDistSpot">200</span> m)</h3>
+                        <span class="lens-badge" id="spotAspectBadge">Aspect Ratio: 1.6:1</span>
+                    </div>
+                    <p class="desc">Laser beam cross-section profile on target. The bright ring marks the size of your receiver lens for scale comparison.</p>
+                    <div class="canvas-container">
+                        <canvas id="spotCanvas"></canvas>
+                    </div>
+                </div>
+
+                <!-- Photodiode Output (Raw) -->
+                <div class="panel chart-panel raw-panel">
+                    <h3>Raw Photodiode Output (DC Coupled)</h3>
+                    <p class="desc">Raw voltage from detector, one full data frame (pulse width exaggerated for visibility). Red line marks the 5V op-amp saturation ceiling.</p>
+                    <div class="chart-container">
+                        <canvas id="rawChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Final Signal Output -->
+                <div class="panel chart-panel filter-panel">
+                    <h3>Final Signal (Post-Processing)</h3>
+                    <p class="desc">The final recovered data frame after optical & electronic filtering.</p>
+                    <div class="chart-container">
+                        <canvas id="filteredChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- RX Electronics Chain Panel -->
+                <div class="panel chain-panel">
+                    <div class="panel-header-flex">
+                        <h3>Receiver Electronics Chain</h3>
+                        <span class="class-badge" id="chainVerdict">CLEAN</span>
+                    </div>
+                    <p class="desc">Photocurrent → AGC/TIA → Comparator → Monostable pulse stretcher → MCU. Checks whether the incoming pulse can be measured cleanly.</p>
+                    <div class="chain-flow" id="chainFlow"></div>
+                    <div class="chain-reasons" id="chainReasons"></div>
+                </div>
+
+                <!-- SNR vs Distance Graph -->
+                <div class="panel chart-panel snr-panel">
+                    <h3>Signal-to-Noise Ratio (SNR) vs Distance</h3>
+                    <p class="desc">Amber: current settings. Blue dashed: power clamped to the Class-1 limit. The marker dot is your currently selected distance; dashed line is the min. usable SNR.</p>
+                    <div class="chart-container">
+                        <canvas id="snrChart"></canvas>
+                    </div>
+                </div>
+
                 <!-- Math Explainer Panel -->
-                <div class="panel glass-panel math-panel collapsed">
+                <div class="panel math-panel collapsed">
                     <h3>The Complete Physics & Optical Budget (Step-by-Step)</h3>
                     <div class="math-steps">
                         <div class="step" id="stepOptics">
@@ -563,69 +653,6 @@
                         </div>
                     </div>
                 </div>
-
-                <!-- Live Ray Tracer & Optics Schematic Panel -->
-                <div class="panel glass-panel optics-panel">
-                    <div class="panel-header-flex">
-                        <h3>Transmitter Optical Train & Ray Tracing</h3>
-                        <span class="lens-badge" id="opticsBadge">FAC + Collimator</span>
-                    </div>
-                    <p class="desc">Interactive optical ray path. Green/Cyan rays are captured and collimated by the lens; Red dashed rays represent light lost due to aperture clipping.</p>
-                    <div class="canvas-container">
-                        <canvas id="rayCanvas"></canvas>
-                    </div>
-                </div>
-
-                <!-- Target Spot Profile Panel -->
-                <div class="panel glass-panel spot-panel">
-                    <div class="panel-header-flex">
-                        <h3>Target Spot Profile (at <span id="lblDistSpot">200</span> m)</h3>
-                        <span class="lens-badge" id="spotAspectBadge">Aspect Ratio: 1.6:1</span>
-                    </div>
-                    <p class="desc">Laser beam cross-section profile on target. The yellow circle represents the size of your 5mm receiver lens for scale comparison.</p>
-                    <div class="canvas-container">
-                        <canvas id="spotCanvas"></canvas>
-                    </div>
-                </div>
-
-                <!-- Photodiode Output (Raw) -->
-                <div class="panel glass-panel chart-panel raw-panel">
-                    <h3>Raw Photodiode Output (DC Coupled)</h3>
-                    <p class="desc">Raw voltage from detector, one full data frame (pulse width exaggerated for visibility). Red line marks the 5V op-amp saturation ceiling.</p>
-                    <div class="chart-container">
-                        <canvas id="rawChart"></canvas>
-                    </div>
-                </div>
-
-                <!-- Final Signal Output -->
-                <div class="panel glass-panel chart-panel filter-panel">
-                    <h3>Final Signal (Post-Processing)</h3>
-                    <p class="desc">The final recovered data frame after optical & electronic filtering.</p>
-                    <div class="chart-container">
-                        <canvas id="filteredChart"></canvas>
-                    </div>
-                </div>
-
-                <!-- RX Electronics Chain Panel -->
-                <div class="panel glass-panel chain-panel">
-                    <div class="panel-header-flex">
-                        <h3>Receiver Electronics Chain</h3>
-                        <span class="class-badge" id="chainVerdict">CLEAN</span>
-                    </div>
-                    <p class="desc">Photocurrent → AGC/TIA → Comparator → Monostable pulse stretcher → MCU. Checks whether the incoming pulse can be measured cleanly.</p>
-                    <div class="chain-flow" id="chainFlow"></div>
-                    <div class="chain-reasons" id="chainReasons"></div>
-                </div>
-
-                <!-- SNR vs Distance Graph -->
-                <div class="panel glass-panel chart-panel snr-panel">
-                    <h3>Signal-to-Noise Ratio (SNR) vs Distance</h3>
-                    <p class="desc">Green: current settings. Yellow: power clamped to the Class-1 limit. Red dot marks your currently selected distance; dashed line is the min. usable SNR.</p>
-                    <div class="chart-container">
-                        <canvas id="snrChart"></canvas>
-                    </div>
-                </div>
-
             </div>
         </main>
     </div>
