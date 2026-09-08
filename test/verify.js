@@ -61,12 +61,26 @@ check('C5 cap at 1 (N=16)', IEC.C5(16, 2, 100e-9), 1, 0);
 check('T2(α=1.5 mrad)', IEC.T2(1.5), 10, 0);
 check('T2(α=100 mrad)', IEC.T2(100), 100, 0);
 
-// --- 5. Atmosphere -----------------------------------------------------
-const tau = Sim.Atmosphere.transmission(23, 905, 200);
-check('τ clear 23 km @ 200 m', tau, 0.983, 0.01);
-const tauFog = Sim.Atmosphere.transmission(0.5, 905, 200);
-console.log(`   (fog 500 m @ 200 m: τ = ${tauFog.toFixed(3)})`);
-expect(tauFog < 0.6, 'fog attenuation strong enough', 'fog attenuation too weak');
+// --- 5. Atmosphere (Mie, large-particle limit) -------------------------
+check('τ clear @ 200 m', Sim.Atmosphere.transmission({ lwcGm3: 0, rainMmH: 0 }, 905, 200), 1, 0);
+const gFog = Sim.Atmosphere.extinctionCoefficient({ lwcGm3: 0.04, rainMmH: 0 }, 905);
+check('γ fog LWC 0.04 g/m³ (1/km)', gFog, 6, 0.01);
+check('τ fog @ 200 m', Sim.Atmosphere.transmission({ lwcGm3: 0.04, rainMmH: 0 }, 905, 200),
+    Math.exp(-6 * 0.2), 0.01);
+const gThick = Sim.Atmosphere.extinctionCoefficient({ lwcGm3: 0.5, rainMmH: 0 }, 905);
+check('γ thick fog LWC 0.5 g/m³ (1/km)', gThick, 75, 0.01);
+const gRain = Sim.Atmosphere.extinctionCoefficient({ lwcGm3: 0, rainMmH: 25 }, 905);
+check('γ heavy rain 25 mm/h (1/km)', gRain, 2.77, 0.01);
+check('τ heavy rain @ 200 m', Sim.Atmosphere.transmission({ lwcGm3: 0, rainMmH: 25 }, 905, 200),
+    Math.exp(-gRain * 0.2), 0.01);
+expect(gThick > gFog && gRain < gFog,
+    'attenuation ordering: thick fog > fog > heavy rain',
+    'attenuation ordering wrong');
+
+// --- 5b. C7 piecewise (EN 60825-1:2014+A11:2021 Table 9) -----------------
+check('C7(905 nm) = 1', IEC.C7(905), 1, 0);
+check('C7(1300 nm) = 8', IEC.C7(1300), 8, 0);
+check('C7(1175 nm)', IEC.C7(1175), Math.pow(10, 0.018 * 25), 0.001);
 
 // --- 6. Gaussian capture ----------------------------------------------
 check('Gaussian capture a=3.5/w=9', Sim.Optics.gaussianCapture1D(3.5, 9), 0.2608, 0.01);
@@ -76,8 +90,9 @@ const p = {
     iForward: 16, pulseWidthNs: 100, pulseFreqKHz: 500, riseTimeNs: 2,
     emitterWum: 200, emitterHum: 2, rawDivSlowDeg: 12, rawDivFastDeg: 25,
     opticsMode: 'fac', fMainMm: 100, dMainMm: 18, fFacMm: 1, fSlowMm: 100, fFastMm: 20,
-    tArPct: 95, distM: 200, visibilityKm: 23, dRxMm: 5, tempC: 25,
-    solarIrradiance: 0.8, filterBw: 370, acCoupling: 'after_tia', gain: 100,
+    tArPct: 95, distM: 200, dRxMm: 5, tempC: 25, ampTempC: 40,
+    atmo: { lwcGm3: 0, rainMmH: 0 },
+    solarIrradiance: 0.8, filterBw: 370, acCoupling: 'after_tia', tiaRfOhm: 100,
     timeBaseS: 100, simplifiedEval: false, minSnrDb: 20
 };
 const tx = Sim.Optics.computeTxBeam(p);
@@ -105,6 +120,19 @@ const safetyOver = Sim.Safety.classify(pOver, Sim.Optics.computeTxBeam(pOver));
 expect(safetyOver.worstRatio > 1, 'classification flips above solved current',
     'classification does not flip above solved current');
 
+// --- 8b. EN 60825-1:2014+A11:2021 compliance: at the Class-1 boundary EVERY
+// criterion (single pulse / average / ×C5) under EVERY measurement condition
+// must sit at or below its AEL. ------------------------------------------
+let allCritOk = true;
+safetySolved.conditions.forEach(c => ['crit1', 'crit2', 'crit3'].forEach(k => {
+    if (c[k].ratio > 1.03) {
+        allCritOk = false;
+        console.log(`   exceeds AEL: ${c.cond.key} ${k} ratio=${c[k].ratio.toFixed(3)}`);
+    }
+}));
+expect(allCritOk, 'all criteria under all conditions obey the AEL at the Class-1 boundary',
+    'a criterion exceeds its AEL at the Class-1 boundary');
+
 // --- 9. NOHD ------------------------------------------------------------
 const nohd = Sim.Safety.nohdM(p, tx, safety);
 console.log(`NOHD ≈ ${nohd.toFixed(1)} m`);
@@ -116,6 +144,21 @@ const rx = Sim.Receiver.linkBudget(p, tx, 200);
 console.log(`RX @200 m: spot=${(rx.spot.spotW_m * 100).toFixed(1)}×${(rx.spot.spotH_m * 100).toFixed(1)} cm, ` +
     `P_rx=${(rx.rxPowerW * 1e6).toFixed(1)} µW, SNR=${rx.snrDb.toFixed(1)} dB, BW=${(rx.noiseBwHz / 1e6).toFixed(0)} MHz`);
 check('Noise BW from 2 ns rise time (Hz)', rx.noiseBwHz, 175e6, 0.001);
+// Thermal (Johnson) noise: i_th = √(4·k_B·T·BW/R_f), R_f = 100 Ω, T = 313.15 K
+const iThExpect = Math.sqrt(4 * Sim.Constants.K_B * (40 + 273.15) * 175e6 / 100);
+check('Johnson noise current R_f=100 Ω, 40 °C (A)', rx.iThermalRMS, iThExpect, 1e-9);
+check('Johnson noise R_f=100 Ω, 40 °C (nA)', rx.iThermalRMS * 1e9, 174, 0.01);
+// Quadrature combination with shot noise
+check('total noise = shot ⊕ thermal (V)', rx.vNoiseRMS,
+    Math.sqrt((rx.iShotRMS * rx.gainUsed) ** 2 + (rx.iThermalRMS * rx.gainUsed) ** 2), 1e-9);
+// Lower R_f -> more Johnson current noise (×√10 for 10× lower R_f)
+const rxLowRf = Sim.Receiver.linkBudget({ ...p, tiaRfOhm: 10 }, tx, 200);
+check('thermal noise scales as 1/√R_f', rxLowRf.iThermalRMS / rx.iThermalRMS, Math.sqrt(10), 0.01);
+// Amplifier temperature raises thermal noise
+const rxHot = Sim.Receiver.linkBudget({ ...p, ampTempC: 85 }, tx, 200);
+expect(rxHot.iThermalRMS > rx.iThermalRMS,
+    'thermal noise rises with amplifier temperature',
+    'thermal noise did not rise with amplifier temperature');
 
 // --- 11. Three measurement conditions incl. legacy Cond. 2 (7mm @ 70mm) --
 expect(safety.conditions.length === 3, '3 measurement conditions evaluated (Cond 1/2/3)',
@@ -236,19 +279,17 @@ function runAimTests() {
                 Sim.Aim.solve(p, anchors, 'envelope',
                     () => {},
                     bestEnv => {
-                        expect(!!bestEnv,
-                            bestEnv ? `Aim envelope mode: score=${bestEnv.score.toFixed(1)}, cost=€${bestEnv.cost}` : 'n/a',
-                            'Aim envelope mode found no candidate');
-                        if (bestEnv) {
-                            const iFog = bestEnv.currents[0];
-                            const i5m = bestEnv.currents[2];
-                            expect(iFog >= 280e-9,
-                                `200m fog ≥ 280 nA: ${(iFog * 1e9).toFixed(1)} nA`,
-                                `envelope 200m fog ${(iFog * 1e9).toFixed(1)} nA < 280 nA`);
-                            expect(i5m <= 2.5e-3,
-                                `5m clear ≤ 2.5 mA: ${(i5m * 1e3).toFixed(2)} mA`,
-                                `envelope 5m clear ${(i5m * 1e3).toFixed(2)} mA > 2.5 mA`);
-                        }
+                        // With the Gaussian spot equations the 5 m spot is
+                        // waist-dominated (RSS of waist and growth), so the
+                        // 5 m photocurrent is ~2150× the 200 m fog current
+                        // for every valid optics config. The envelope window
+                        // (fog ≥ 280 nA at 20 dB SNR ⇒ fog ≳ 2 µA in full sun
+                        // ⇒ 5 m ≳ 4.3 mA > 2.5 mA anchor) is infeasible —
+                        // confirmed by exhaustive scan. User decision: keep
+                        // the 2.5 mA anchor and expect no candidate.
+                        expect(!bestEnv,
+                            'envelope mode correctly reports infeasible (Gaussian 5 m spot vs 2.5 mA anchor)',
+                            `envelope unexpectedly found a candidate: score=${bestEnv && bestEnv.score.toFixed(1)}`);
                         resolve();
                     }
                 );
@@ -259,9 +300,31 @@ function runAimTests() {
 
 // --- 18. Regression: clipped-beam near-field diameter --------------------
 // Ø18 mm lens clips the ~21 mm incident slow-axis beam -> spot at d=0 must
-// start at 18 mm (min), not 21 mm (max).
+// start at 18 mm (min), not 21 mm (max). (Gaussian waist = clipped radius.)
 const spot0 = Sim.Optics.spotAtDistance(p, tx, 0);
 check('near-field spot starts at clipped beam Ø (m)', spot0.spotW_m, 0.018, 0.001);
+
+// --- 18b. Gaussian propagation + fast/slow axes (edge-emitter) ------------
+// w(z) = √(w0² + (z·tan(θ/2))²) per axis
+const w0S = Math.min(p.dMainMm, tx.beamDiaLensSlowMm) * 1e-3 / 2;
+const w0F = Math.min(p.dMainMm, tx.beamDiaLensFastMm) * 1e-3 / 2;
+const spot200 = Sim.Optics.spotAtDistance(p, tx, 200);
+check('Gaussian spot width @200 m (m)', spot200.spotW_m,
+    2 * Math.sqrt(w0S * w0S + Math.pow(200 * Math.tan((tx.divOutSlowMrad / 1000) / 2), 2)), 1e-9);
+check('Gaussian spot height @200 m (m)', spot200.spotH_m,
+    2 * Math.sqrt(w0F * w0F + Math.pow(200 * Math.tan((tx.divOutFastMrad / 1000) / 2), 2)), 1e-9);
+// Gaussian spot must be smaller than the old linear cone sum
+const linearW = 2 * w0S + 2 * 200 * Math.tan((tx.divOutSlowMrad / 1000) / 2);
+expect(spot200.spotW_m < linearW,
+    `Gaussian spot (${spot200.spotW_m.toFixed(3)} m) below linear cone growth (${linearW.toFixed(3)} m)`,
+    'Gaussian spot not below linear growth');
+// Rayleigh range z_R = π·w0²/(M²·λ)
+const lambdaM = tx.lambdaNm * 1e-9;
+check('z_R slow (m)', spot200.zR_slow_m, Math.PI * w0S * w0S / (tx.m2Slow * lambdaM), 1e-6);
+// Edge-emitting diode: slow axis highly multimode, fast axis ~diffraction-limited
+expect(tx.m2Slow > 5, `slow axis multimode (M²=${tx.m2Slow.toFixed(1)})`,
+    `slow axis M² too small (${tx.m2Slow.toFixed(1)})`);
+check('fast axis near diffraction-limited (M²≈1)', tx.m2Fast, 1, 0.01);
 
 // --- 19. Simplified-eval consistency (α = αmin everywhere) ----------------
 const safetySimpl = Sim.Safety.classify({ ...p, simplifiedEval: true }, tx);

@@ -88,10 +88,11 @@ Sim.Aim = (function () {
         const rxs = [];
         const currents = [];
         for (const a of anchors) {
+            const preset = Sim.Atmosphere.WEATHER_PRESETS[a.weather];
             const pA = {
                 ...p,
                 distM: a.distM,
-                visibilityKm: Sim.Atmosphere.WEATHER_PRESETS[a.weather].visibilityKm
+                atmo: { lwcGm3: preset.lwcGm3, rainMmH: preset.rainMmH }
             };
             const txA = Sim.Optics.computeTxBeam(pA);
             const rx = Sim.Receiver.linkBudget(pA, txA, a.distM);
@@ -151,11 +152,11 @@ Sim.Aim = (function () {
         const iFwdVals   = [0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
         const acModes    = ['before_tia', 'after_tia'];
         const gainModes  = [
-            { gain: 10,   agcOn: false, agcTargetV: 0 },
-            { gain: 100,  agcOn: false, agcTargetV: 0 },
-            { gain: 1000, agcOn: false, agcTargetV: 0 },
-            { gain: 10000,agcOn: false, agcTargetV: 0 },
-            { gain: 100,  agcOn: true,  agcTargetV: 1.0 }
+            { tiaRfOhm: 10,   agcOn: false, agcTargetV: 0 },
+            { tiaRfOhm: 100,  agcOn: false, agcTargetV: 0 },
+            { tiaRfOhm: 1000, agcOn: false, agcTargetV: 0 },
+            { tiaRfOhm: 10000,agcOn: false, agcTargetV: 0 },
+            { tiaRfOhm: 100,  agcOn: true,  agcTargetV: 1.0 }
         ];
 
         // --- Phase 1: pre-filter optics configs by spot at 200 m --------

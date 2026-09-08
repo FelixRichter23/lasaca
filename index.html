@@ -184,14 +184,21 @@
                 </div>
 
                 <div class="control">
-                    <label for="weatherPreset">Weather (Visibility):</label>
+                    <label for="weatherPreset">Weather:</label>
                     <select id="weatherPreset" class="custom-select"><!-- options populated from Sim.Atmosphere.WEATHER_PRESETS --></select>
                 </div>
 
-                <div class="control" id="ctrlVisibility" style="display:none;">
-                    <label for="visibility">Custom Visibility (km): <span id="visibilityVal">10</span></label>
-                    <input type="range" id="visibility" min="0.1" max="40" value="10" step="0.1">
-                    <small>Kruse/Kim model: γ = (3.912/V)·(λ/550)^(−q)</small>
+                <div id="ctrlAtmoCustom" style="display:none;">
+                    <div class="control">
+                        <label for="lwc">Liquid Water Content (g/m³): <span id="lwcVal">0.10</span></label>
+                        <input type="range" id="lwc" min="0" max="1.0" value="0.10" step="0.01">
+                        <small>Mie fog model: γ_fog = 3·LWC/(2·ρ_w·r_eff)</small>
+                    </div>
+                    <div class="control">
+                        <label for="rainRate">Rain Rate (mm/h): <span id="rainRateVal">10</span></label>
+                        <input type="range" id="rainRate" min="0" max="100" value="10" step="0.5">
+                        <small>Marshall–Palmer: γ_rain = π·N0/Λ³</small>
+                    </div>
                 </div>
 
                 <div class="control">
@@ -203,6 +210,12 @@
                     <label for="operatingTemp">Operating Temp (°C): <span id="operatingTempVal">25</span></label>
                     <input type="range" id="operatingTemp" min="-40" max="85" value="25" step="1">
                     <small>TC_λ = +0.28 nm/K &bull; TC_P = -0.4%/K</small>
+                </div>
+
+                <div class="control">
+                    <label for="ampTemp">Amplifier Temp (°C): <span id="ampTempVal">40</span></label>
+                    <input type="range" id="ampTemp" min="-40" max="85" value="40" step="1">
+                    <small>Sets Johnson–Nyquist noise of the TIA feedback resistor</small>
                 </div>
             </div>
 
@@ -244,8 +257,9 @@
                 </div>
 
                 <div class="control" id="ctrlTiaGain">
-                    <label for="tiaGain">TIA Gain (Ω): <span id="tiaGainVal">100</span></label>
+                    <label for="tiaGain">TIA Feedback Resistor R_f (Ω): <span id="tiaGainVal">100</span></label>
                     <input type="range" id="tiaGain" min="10" max="10000" value="100" step="10">
+                    <small>TIA gain = R_f (V/A) &bull; also sets the thermal noise floor</small>
                 </div>
 
                 <div class="control" id="ctrlAgcTarget" style="display:none;">
@@ -268,7 +282,7 @@
 
             <!-- 5. Laser Safety (IEC 60825-1) -->
             <div class="control-group safety-group">
-                <h3>5. Safety (IEC 60825-1:2014)</h3>
+                <h3>5. Safety (EN 60825-1:2014+A11:2021)</h3>
 
                 <div class="control">
                     <label for="timeBase">Classification Time Base:</label>
@@ -490,7 +504,7 @@
                 <!-- Safety Classification Panel -->
                 <div class="panel safety-panel" id="safetyPanel">
                     <div class="panel-header-flex">
-                        <h3>IEC 60825-1:2014 Classification</h3>
+                        <h3>EN 60825-1:2014+A11:2021 Classification</h3>
                         <span class="class-badge" id="classBadge">CLASS 1</span>
                     </div>
                     <p class="desc">Accessible emission vs. AEL for all three pulsed criteria (4.3 f)) under all measurement conditions. Extended-source analysis per ISH1:2017 (α = arithmetic mean of axes). Distances referenced to the emitting chip facet.</p>
@@ -625,15 +639,15 @@
                         </div>
                         <div class="step" id="stepBeam">
                             <h4>2. Beam Divergence & Target Spot</h4>
-                            <p>Collimated divergence: <strong id="calcDivMrad">2.00 × 3.28 mrad</strong>.
+                            <p>Collimated divergence: <strong id="calcDivMrad">2.00 × 3.28 mrad</strong> (slow × fast, M² ≈ <strong id="calcM2">– × –</strong>).
                             At <span class="highlight" id="lblDist">200</span> m, spot size is <strong id="calcSpotSize">41.8 cm × 67.4 cm</strong> (Area: <strong id="calcSpotArea">0.221 m²</strong>).</p>
-                            <p class="formula">θ_col = √( (w_emit / f)² + (4λ / π D)² ) &bull; Spot = D_lens + 2 × Dist × tan(θ/2)</p>
+                            <p class="formula">θ_col = √( (w_emit / f)² + (4λ / π D)² ) &bull; w(z) = √( w0² + (z·tan(θ/2))² ) &bull; z_R = π·w0²/(M²·λ)</p>
                         </div>
                         <div class="step" id="stepAtmo">
                             <h4>3. Atmospheric Attenuation</h4>
-                            <p>Visibility <span class="highlight" id="lblVisibility">23</span> km → γ = <strong id="calcGamma">0.163</strong> /km.
-                            Transmission over <span class="highlight" id="lblDistAtmo">200</span> m: <strong id="calcTau">96.8%</strong>.</p>
-                            <p class="formula">γ = (3.912/V)·(λ/550nm)^(−q) &bull; τ = exp(−γ·d)</p>
+                            <p>LWC <span class="highlight" id="lblLwc">0</span> g/m³, rain <span class="highlight" id="lblRain">0</span> mm/h → γ = <strong id="calcGamma">0.000</strong> /km.
+                            Transmission over <span class="highlight" id="lblDistAtmo">200</span> m: <strong id="calcTau">100%</strong>.</p>
+                            <p class="formula">Mie limit (Q_ext ≈ 2): γ_fog = 3·LWC/(2·ρ_w·r_eff) &bull; γ_rain = π·N0/Λ³ (Marshall–Palmer) &bull; τ = exp(−γ·d)</p>
                         </div>
                         <div class="step" id="stepRx">
                             <h4>4. RX Link Budget & Signal</h4>
@@ -642,11 +656,11 @@
                         </div>
                         <div class="step warning-step" id="stepNoise">
                             <h4>5. Solar Noise & AC-Filter</h4>
-                            <p>Direct sunlight injects <strong id="calcSolarPower">5.81 mW</strong> DC into the detector. Shot noise: <strong id="calcNoiseRMS">0.02 mV</strong> RMS (BW <span class="highlight" id="lblNoiseBw">175</span> MHz).</p>
-                            <p class="formula">BW ≈ 0.35/t_rise &bull; i_noise = √(2 × q × I_solar × B)</p>
+                            <p>Direct sunlight injects <strong id="calcSolarPower">5.81 mW</strong> DC into the detector. Noise: <strong id="calcNoiseRMS">0.02 mV</strong> RMS (shot <span class="highlight" id="calcShotRMS">0.00</span> mV + thermal <span class="highlight" id="calcThermalRMS">0.00</span> mV @ <span class="highlight" id="lblAmpTemp">40</span> °C, BW <span class="highlight" id="lblNoiseBw">175</span> MHz).</p>
+                            <p class="formula">BW ≈ 0.35/t_rise &bull; i_noise = √( 2·q·I_solar·B + 4·k_B·T·B/R_f )</p>
                         </div>
                         <div class="step safety-step" id="stepSafety">
-                            <h4>6. IEC 60825-1 Class 1 AEL</h4>
+                            <h4>6. EN 60825-1 Class 1 AEL</h4>
                             <p>α = <strong id="calcAlpha">2.0 mrad</strong> → C6 = <strong id="calcC6">1.33</strong>; C4 = <strong id="calcC4">2.57</strong>; C5 = <strong id="calcC5">0.40</strong>.
                             Single-pulse AEL: <strong id="calcAel">26.4 nJ</strong>.</p>
                             <p class="formula">AEL_sp = 7.7×10⁻⁸ × C4×C6×C7 [J] &bull; C5 = 5·N^(−0.25) ≥ 0.4</p>

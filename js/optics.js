@@ -12,6 +12,13 @@
  *    and Gaussian diffraction term 4λ/(π D).
  *  - Apparent source angular subtense per axis: α_axis = w_emit / f
  *    (= geometric divergence; feeds IEC 60825-1 C6 analysis).
+ *  - Edge-emitting diode axes: fast axis (⊥ junction, µm-scale emitter
+ *    height, near diffraction-limited, M² ≈ 1); slow axis (∥ junction,
+ *    100–200 µm emitter width, highly multimode, M² ≫ 1). Per-axis M² is
+ *    reported as the geometric/diffraction divergence ratio.
+ *  - Spot propagation: Gaussian w(z) = √( w0² + (z·tan(θ/2))² ), i.e.
+ *    w0·√(1 + (z/z_R)²) with z_R = π w0²/(M²·λ) — replaces the old linear
+ *    cone growth.
  */
 window.Sim = window.Sim || {};
 
@@ -129,6 +136,12 @@ Sim.Optics = (function () {
         const divSlow = Math.sqrt(divGeomSlow * divGeomSlow + divDiffSlow * divDiffSlow);
         const divFast = Math.sqrt(divGeomFast * divGeomFast + divDiffFast * divDiffFast);
 
+        // Per-axis beam quality factor M² (geometric / diffraction
+        // divergence ratio). Fast axis of an edge-emitter is nearly
+        // diffraction-limited (M² ≈ 1); the slow axis is highly multimode.
+        const m2Slow = divDiffSlow > 0 ? Math.max(1, divGeomSlow / divDiffSlow) : 1;
+        const m2Fast = divDiffFast > 0 ? Math.max(1, divGeomFast / divDiffFast) : 1;
+
         // Apparent source angular subtense per axis [mrad] — purely geometric
         // (diffraction does not enlarge the apparent source image).
         const alphaSlowMrad = fEffSlow > 0 ? (p.emitterWum * 1e-3) / fEffSlow * 1000 : (p.manualDivSlowMrad || 2.5);
@@ -154,6 +167,8 @@ Sim.Optics = (function () {
             divDiffFastMrad: divDiffFast * 1000,
             beamDiaLensSlowMm: beamLensSlowMm,
             beamDiaLensFastMm: beamLensFastMm,
+            m2Slow,
+            m2Fast,
             alphaSlowMrad,
             alphaFastMrad,
             alphaMeanMrad: (alphaSlowMrad + alphaFastMrad) / 2,
@@ -162,17 +177,32 @@ Sim.Optics = (function () {
     }
 
     /**
-     * Elliptical spot geometry at a given distance from the TX aperture.
-     * Uses per-axis output divergence; near field starts at the *clipped*
-     * beam diameter at the lens plane: the lens aperture truncates an
-     * overfilling beam, so the transmitted diameter is min(lens Ø, beam Ø).
+     * Elliptical Gaussian spot geometry at a given distance from the TX
+     * aperture. Per axis: w(z) = √( w0² + (z·tan(θ/2))² ), equivalent to the
+     * Gaussian-beam form w0·√(1 + (z/z_R)²) with z_R = π·w0²/(M²·λ).
+     * The waist w0 is the *clipped* beam radius at the lens plane: the lens
+     * aperture truncates an overfilling beam, so the transmitted waist is
+     * min(lens Ø, beam Ø)/2. z_R uses the full-angle divergence, consistent
+     * with M² = θ_geom/θ_diff.
      */
     function spotAtDistance(p, tx, distM) {
-        const w = Math.min(p.dMainMm, tx.beamDiaLensSlowMm) * 1e-3 +
-            2 * distM * Math.tan((tx.divOutSlowMrad / 1000) / 2);
-        const h = Math.min(p.dMainMm, tx.beamDiaLensFastMm) * 1e-3 +
-            2 * distM * Math.tan((tx.divOutFastMrad / 1000) / 2);
-        return { spotW_m: w, spotH_m: h, area_m2: Math.PI * (w / 2) * (h / 2) };
+        const lambdaM = tx.lambdaNm * 1e-9;
+        const axis = (diaLensMm, divMrad, m2) => {
+            const w0 = Math.min(p.dMainMm, diaLensMm) * 1e-3 / 2;
+            const grow = distM * Math.tan((divMrad / 1000) / 2);
+            const w = Math.sqrt(w0 * w0 + grow * grow);
+            // Rayleigh range: z_R = π·w0²/(M²·λ)
+            const zR = (Math.PI * w0 * w0) / (Math.max(1, m2) * lambdaM);
+            return { w0, w, zR };
+        };
+        const slow = axis(tx.beamDiaLensSlowMm, tx.divOutSlowMrad, tx.m2Slow || 1);
+        const fast = axis(tx.beamDiaLensFastMm, tx.divOutFastMrad, tx.m2Fast || 1);
+        return {
+            spotW_m: 2 * slow.w, spotH_m: 2 * fast.w,
+            area_m2: Math.PI * slow.w * fast.w,
+            w0Slow_m: slow.w0, w0Fast_m: fast.w0,
+            zR_slow_m: slow.zR, zR_fast_m: fast.zR
+        };
     }
 
     return { wavelengthNm, diodePeakPowerW, gaussianCapture1D, computeTxBeam, spotAtDistance };

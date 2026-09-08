@@ -4,15 +4,17 @@
  * Sources:
  *  - OSRAM SPL PL90AT03 datasheet (poc/files/SPL PL90AT03_EN.pdf)
  *  - OSRAM BPW 34 FAS datasheet (poc/files/BPW 34 FAS_EN.pdf)
+ *  - EN 60825-1:2014+A11:2021 (CENELEC adoption of IEC 60825-1:2014 incl.
+ *    corrigenda and Interpretation Sheets ISH1/ISH2)
  *  - IEC 60825-1:2014 Interpretation Sheets ISH1/ISH2 preview
  *    (poc/files/info_iec60825-1{ed3.0}b.pdf, extracted text: iec_sheet.txt)
  *  - German research report on IEC 60825-1 AEL tables
  *    (poc/files/research-in-german-for-iec-spec.txt)
  *
- * NOTE: The numeric AEL base tables (IEC 60825-1:2014 Tables 3/4/9/10) are
- * paywalled in the preview PDF. Values below taken from the research report
- * and ISH1/ISH2 text are marked with `// VERIFY:` and must be checked against
- * the official standard before any product release.
+ * NOTE: The numeric AEL base tables (EN 60825-1:2014+A11:2021 Tables 3/4/9/10)
+ * are paywalled. Values below taken from the research report, ISH1/ISH2 text
+ * and other public sources are marked with `// VERIFY:` and must be checked
+ * against the official standard before any product release.
  */
 window.Sim = window.Sim || {};
 
@@ -24,7 +26,16 @@ Sim.Constants = (function () {
     // ------------------------------------------------------------------
     // Physical constants
     // ------------------------------------------------------------------
-    C.Q_E = 1.602e-19; // Elementary charge [C]
+    C.Q_E = 1.602e-19;  // Elementary charge [C]
+    C.K_B = 1.381e-23;  // Boltzmann constant [J/K]
+
+    // ------------------------------------------------------------------
+    // Receiver amplifier (TIA) defaults — user-adjustable in the UI
+    // ------------------------------------------------------------------
+    C.AMPLIFIER = {
+        AMP_TEMP_C_DEFAULT: 40,        // amplifier temperature [°C]
+        TIA_RF_OHM_DEFAULT: 10e3       // TIA feedback resistor R_f [Ω] (= manual gain V/A)
+    };
 
     // ------------------------------------------------------------------
     // OSRAM SPL PL90AT03 laser diode (905 nm)
@@ -63,7 +74,7 @@ Sim.Constants = (function () {
     };
 
     // ------------------------------------------------------------------
-    // IEC 60825-1:2014 + ISH1:2017 / ISH2:2017 constants
+    // EN 60825-1:2014+A11:2021 (= IEC 60825-1:2014 + ISH1:2017 / ISH2:2017)
     // ------------------------------------------------------------------
     C.IEC = {
         // --- Angular subtense -------------------------------------------
@@ -87,7 +98,7 @@ Sim.Constants = (function () {
         TI_S: 5e-6,                      // 5 µs for 400–1050 nm (13 µs for 1050–1400 nm)
 
         // --- C4 (wavelength) --------------------------------------------
-        // VERIFY: IEC 60825-1:2014 Table 9
+        // VERIFY: EN 60825-1:2014+A11:2021 Table 9
         C4(lambda_nm) {
             if (lambda_nm < 400 || lambda_nm > 1400) return 1;
             if (lambda_nm <= 700) return 1;
@@ -107,14 +118,19 @@ Sim.Constants = (function () {
             return alpha_mrad / this.ALPHA_MIN_MRAD;
         },
 
-        // --- C7 (infrared >1050 nm) -------------------------------------
+        // --- C7 (infrared 1050–1400 nm) -----------------------------
+        // VERIFY: EN 60825-1:2014+A11:2021 Table 9 — piecewise form from
+        // public sources; equals 1 at 905 nm (the design wavelength).
         C7(lambda_nm) {
-            return lambda_nm > 1050 ? 1 : 1; // kept for completeness; 1 at 905 nm
+            if (lambda_nm <= 1150) return 1;
+            if (lambda_nm <= 1200) return Math.pow(10, 0.018 * (lambda_nm - 1150));
+            if (lambda_nm <= 1400) return 8;
+            return 1;
         },
 
         // --- C5 (pulse train / thermal additivity) ----------------------
         /**
-         * C5 per IEC 60825-1:2014 Table 9 and ISH1.
+         * C5 per EN 60825-1:2014+A11:2021 Table 9 and ISH1.
          * User-confirmed branch: α ≤ 5 mrad, t ≤ Ti → C5 = 5·N^(−0.25), floor 0.4.
          * @param {number} N number of (effective) pulses within min(time base, T2)
          * @param {number} alpha_mrad angular subtense [mrad]
@@ -125,7 +141,7 @@ Sim.Constants = (function () {
             const aMax = this.alphaMax_mrad(t_pulse_s);
             let c5;
             if (alpha_mrad <= 5 && t_pulse_s <= this.TI_S) {
-                // VERIFY: IEC 60825-1:2014 Table 9, branch α ≤ 5 mrad, t ≤ Ti
+                // VERIFY: EN 60825-1:2014+A11:2021 Table 9, branch α ≤ 5 mrad, t ≤ Ti
                 c5 = 5 * Math.pow(N, -0.25);
                 return Math.min(1, Math.max(0.4, c5));
             }
@@ -147,7 +163,7 @@ Sim.Constants = (function () {
         /**
          * T2(α): time at which the retinal thermal limit transitions from
          * energy (J) to power (W).
-         * VERIFY: IEC 60825-1:2014 Table 9 / MPE tables.
+         * VERIFY: EN 60825-1:2014+A11:2021 Table 9 / MPE tables.
          * @param {number} alpha_mrad angular subtense [mrad]
          * @returns {number} T2 [s]
          */
@@ -163,7 +179,7 @@ Sim.Constants = (function () {
         // --- AEL Class 1, 700–1050 nm -----------------------------------
         /**
          * Accessible Emission Limit for a single pulse or CW segment.
-         * VERIFY: IEC 60825-1:2014 Tables 3/4; numeric constants from
+         * VERIFY: EN 60825-1:2014+A11:2021 Tables 3/4; numeric constants from
          * research report §4.2/4.3 and user feedback.
          *
          * @param {number} t_s emission duration [s]
@@ -202,7 +218,7 @@ Sim.Constants = (function () {
             return 0.01 * alpha_mrad * Math.sqrt(tp);
         },
 
-        // --- Measurement conditions (2014 edition) -----------------------
+        // --- Measurement conditions (2014 edition, incl. A11:2021) -------
         // Old Condition 2 (eye loupe) was formally removed in IEC 60825-1:2014,
         // but test labs still measure at 7 mm @ 70 mm in practice (see the
         // MKL-R01 Intertek test report, poc/files/laser_testing_MKLR01.pdf),

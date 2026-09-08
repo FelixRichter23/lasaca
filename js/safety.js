@@ -1,5 +1,7 @@
 /**
- * IEC 60825-1:2014 (+ ISH1:2017) laser safety classification.
+ * EN 60825-1:2014+A11:2021 laser safety classification.
+ * (CENELEC adoption of IEC 60825-1:2014 incl. corrigenda and
+ * Interpretation Sheets ISH1:2017 / ISH2:2017.)
  *
  * Model summary (905 nm, pulsed):
  *  - α (angular subtense of apparent source) = arithmetic mean of the two

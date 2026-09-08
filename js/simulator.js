@@ -41,9 +41,11 @@
         lensTransmission: $('lensTransmission'),
         distance: $('distance'),
         weatherPreset: $('weatherPreset'),
-        visibility: $('visibility'),
+        lwc: $('lwc'),
+        rainRate: $('rainRate'),
         lensDiameterRx: $('lensDiameterRx'),
         operatingTemp: $('operatingTemp'),
+        ampTemp: $('ampTemp'),
         solarIrradiance: $('solarIrradiance'),
         sensorFilter: $('sensorFilter'),
         acCoupling: $('acCoupling'),
@@ -80,9 +82,10 @@
     // ------------------------------------------------------------------
     function buildParams() {
         const weather = inputs.weatherPreset.value;
-        const visibilityKm = weather === 'custom'
-            ? parseFloat(inputs.visibility.value)
-            : Sim.Atmosphere.WEATHER_PRESETS[weather].visibilityKm;
+        const preset = Sim.Atmosphere.WEATHER_PRESETS[weather];
+        const atmo = weather === 'custom'
+            ? { lwcGm3: parseFloat(inputs.lwc.value), rainMmH: parseFloat(inputs.rainRate.value) }
+            : { lwcGm3: preset.lwcGm3, rainMmH: preset.rainMmH };
 
         return {
             iForward: parseFloat(inputs.driveCurrent.value),
@@ -106,13 +109,14 @@
             manualDivFastMrad: parseFloat(inputs.manualDivFast.value) || 10,
             tArPct: parseFloat(inputs.lensTransmission.value),
             distM: parseFloat(inputs.distance.value),
-            visibilityKm,
+            atmo,
             dRxMm: parseFloat(inputs.lensDiameterRx.value),
             tempC: parseFloat(inputs.operatingTemp.value),
+            ampTempC: parseFloat(inputs.ampTemp.value),
             solarIrradiance: parseFloat(inputs.solarIrradiance.value),
             filterBw: parseFloat(inputs.sensorFilter.value),
             acCoupling: inputs.acCoupling.value,
-            gain: parseFloat(inputs.tiaGain.value),
+            tiaRfOhm: parseFloat(inputs.tiaGain.value),
             agcOn: inputs.agcMode.value === 'agc',
             agcTargetV: parseFloat(inputs.agcTarget.value),
             compThreshMv: parseFloat(inputs.compThresh.value) || 50,
@@ -175,13 +179,13 @@
         const agc = inputs.agcMode.value === 'agc';
         $('ctrlTiaGain').style.display = agc ? 'none' : '';
         $('ctrlAgcTarget').style.display = agc ? '' : 'none';
-        $('ctrlVisibility').style.display = inputs.weatherPreset.value === 'custom' ? '' : 'none';
+        $('ctrlAtmoCustom').style.display = inputs.weatherPreset.value === 'custom' ? '' : 'none';
     }
 
     function populateWeatherSelects() {
         const options = Object.entries(Sim.Atmosphere.WEATHER_PRESETS)
             .map(([val, pr]) => `<option value="${val}">${pr.label}</option>`).join('');
-        inputs.weatherPreset.innerHTML = options + '<option value="custom">Custom (slider below)</option>';
+        inputs.weatherPreset.innerHTML = options + '<option value="custom">Custom (LWC + rain sliders below)</option>';
         inputs.weatherPreset.value = 'clear';
         for (let i = 1; i <= 3; i++) {
             inputs[`aimWeather${i}`].innerHTML = options;
@@ -258,8 +262,9 @@
         $('calcSpotSize').innerText = `${(rx.spot.spotW_m * 100).toFixed(1)} cm × ${(rx.spot.spotH_m * 100).toFixed(1)} cm`;
         $('calcSpotArea').innerText = `${rx.spot.area_m2.toFixed(3)} m²`;
 
-        $('lblVisibility').innerText = p.visibilityKm;
-        $('calcGamma').innerText = Sim.Atmosphere.extinctionCoefficient(p.visibilityKm, tx.lambdaNm).toFixed(3);
+        $('lblLwc').innerText = p.atmo.lwcGm3;
+        $('lblRain').innerText = p.atmo.rainMmH;
+        $('calcGamma').innerText = Sim.Atmosphere.extinctionCoefficient(p.atmo, tx.lambdaNm).toFixed(3);
         $('calcTau').innerText = `${(rx.tau * 100).toFixed(1)}%`;
 
         $('lblRxLensDia').innerText = p.dRxMm;
@@ -269,7 +274,11 @@
 
         $('calcSolarPower').innerText = `${(rx.solarPowerW * 1000).toFixed(2)} mW`;
         $('calcNoiseRMS').innerText = `${(rx.vNoiseRMS * 1000).toFixed(3)} mV`;
+        $('calcShotRMS').innerText = (rx.iShotRMS * rx.gainUsed * 1000).toFixed(3);
+        $('calcThermalRMS').innerText = (rx.iThermalRMS * rx.gainUsed * 1000).toFixed(3);
+        $('lblAmpTemp').innerText = p.ampTempC;
         $('lblNoiseBw').innerText = (rx.noiseBwHz / 1e6).toFixed(0);
+        $('calcM2').innerText = `${tx.m2Slow.toFixed(1)} × ${tx.m2Fast.toFixed(1)}`;
 
         const IEC = C.IEC;
         $('calcAlpha').innerText = `${safetyView.alphaMrad.toFixed(2)} mrad`;
@@ -446,8 +455,9 @@
             emitterWidth: '200', emitterHeight: '2.0', rawDivSlow: '12.0', rawDivFast: '25.0',
             lensDiameterTx: '18', lensTransmission: '95', lensDiameterRx: '5',
             tiaGain: '100', acCoupling: 'after_tia', sensorFilter: '370',
-            weatherPreset: 'clear', solarIrradiance: '0.8',
-            bitsPerFrame: '65', framesPerS: '17', agcMode: 'manual', compThresh: '50', monoStretch: '10'
+            weatherPreset: 'clear', lwc: '0.10', rainRate: '10', solarIrradiance: '0.8',
+            bitsPerFrame: '65', framesPerS: '17', agcMode: 'manual', compThresh: '50', monoStretch: '10',
+            ampTemp: '40'
         };
 
         if (name === '100mm') {
@@ -576,7 +586,7 @@
                 if (r.snrDb < pBase.minSnrDb) reasons.push(`SNR ${r.snrDb.toFixed(1)} dB < ${pBase.minSnrDb} dB`);
                 if (!r.chainClean) reasons.push('RX chain not clean');
                 status.innerText = `No Class-1 setup closes the link at ${pBase.distM} m ` +
-                    `(visibility ${pBase.visibilityKm} km). Closest: ${r.optics.name} @ ${r.iA.toFixed(1)} A — ` +
+                    `(LWC ${pBase.atmo.lwcGm3} g/m³, rain ${pBase.atmo.rainMmH} mm/h). Closest: ${r.optics.name} @ ${r.iA.toFixed(1)} A — ` +
                     `${reasons.join(', ')}. Try a larger RX lens, shorter distance, better weather, or lower min SNR.`;
             }
         }
@@ -876,7 +886,7 @@
         $('aimResOptics').innerText = opticsName;
         $('aimResCurrent').innerText = `${p.iForward.toFixed(1)} A`;
         $('aimResRxLens').innerText = `${p.dRxMm} mm`;
-        $('aimResGain').innerText = p.agcOn ? `AGC @ ${p.agcTargetV} V` : `Manual ${p.gain} Ω`;
+        $('aimResGain').innerText = p.agcOn ? `AGC @ ${p.agcTargetV} V` : `Manual ${p.tiaRfOhm} Ω`;
         $('aimResSpot').innerText = `${(best.spot.w * 100).toFixed(1)} × ${(best.spot.h * 100).toFixed(1)} cm`;
         $('aimResCost').innerText = `≈ €${best.cost}`;
         $('aimResMargin').innerText = `${best.safety.marginDb >= 0 ? '+' : ''}${best.safety.marginDb.toFixed(1)} dB`;
@@ -904,7 +914,7 @@
             focalMain: String(p.fMainMm),
             lensDiameterTx: String(p.dMainMm),
             lensDiameterRx: String(p.dRxMm),
-            tiaGain: String(p.gain),
+            tiaGain: String(p.tiaRfOhm || p.gain),
             agcMode: p.agcOn ? 'agc' : 'manual',
             acCoupling: p.acCoupling
         };
@@ -940,7 +950,7 @@
 
     inputs.opticsMode.addEventListener('change', () => { updateOpticsModeUI(); updateSimulation(); });
     inputs.weatherPreset.addEventListener('change', () => {
-        $('ctrlVisibility').style.display = inputs.weatherPreset.value === 'custom' ? '' : 'none';
+        $('ctrlAtmoCustom').style.display = inputs.weatherPreset.value === 'custom' ? '' : 'none';
         updateSimulation();
     });
 

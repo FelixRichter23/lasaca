@@ -4,7 +4,10 @@
  * Changes vs the original PoC:
  *  - Noise bandwidth is no longer hardcoded to 20 MHz; it is derived from
  *    the pulse rise time (BW ≈ 0.35 / t_rise).
- *  - Atmospheric transmission τ (Kruse/Kim) is applied to the received power.
+ *  - Atmospheric transmission τ (Mie model) is applied to the received power.
+ *  - Thermal (Johnson–Nyquist) noise of the TIA feedback resistor R_f is
+ *    combined in quadrature with the solar shot noise. R_f [Ω] equals the
+ *    TIA gain [V/A]; with AGC active, the AGC-derived gain is used as R_f.
  */
 window.Sim = window.Sim || {};
 
@@ -30,8 +33,8 @@ Sim.Receiver = (function () {
         const rxAreaM2 = Math.PI * rxRadiusM * rxRadiusM;
         const captureRatio = Math.min(1, rxAreaM2 / spot.area_m2);
 
-        // Atmosphere
-        const tau = Sim.Atmosphere.transmission(p.visibilityKm, tx.lambdaNm, distM);
+        // Atmosphere (Mie model: fog LWC + rain rate)
+        const tau = Sim.Atmosphere.transmission(p.atmo, tx.lambdaNm, distM);
 
         // Optical bandpass: hard pass/block based on temp-drifted wavelength
         let filterLoss = 1.0;
@@ -50,20 +53,26 @@ Sim.Receiver = (function () {
         const iSignal = rxPowerW * R;
         const iSolar = solarPowerW * R;
 
-        // TIA gain: manual slider or AGC (keeps V_signal at the target level)
-        let gain = p.gain;
+        // TIA gain: manual R_f slider or AGC (keeps V_signal at the target)
+        // Manual TIA gain [V/A] equals the feedback resistor R_f [Ω].
+        let gain = p.tiaRfOhm || p.gain;
         let agcActive = false;
         if (p.agcOn && iSignal > 1e-15) {
             gain = Math.min(1e6, Math.max(10, (p.agcTargetV || 1) / iSignal));
             agcActive = true;
         }
+        const rFOhm = gain; // effective feedback resistor for Johnson noise
 
         const vSignal = iSignal * gain;
         const vSolarRaw = iSolar * gain;
         const vSolarTIA = p.acCoupling === 'before_tia' ? 0 : vSolarRaw;
 
         const bw = noiseBandwidthHz(p.riseTimeNs);
-        const iNoiseRMS = Math.sqrt(2 * Sim.Constants.Q_E * iSolar * bw);
+        const iShotRMS = Math.sqrt(2 * Sim.Constants.Q_E * iSolar * bw);
+        // Johnson–Nyquist noise of the feedback resistor at amplifier temp
+        const tempK = (p.ampTempC != null ? p.ampTempC : 40) + 273.15;
+        const iThermalRMS = Math.sqrt(4 * Sim.Constants.K_B * tempK * bw / rFOhm);
+        const iNoiseRMS = Math.sqrt(iShotRMS * iShotRMS + iThermalRMS * iThermalRMS);
         const vNoiseRMS = iNoiseRMS * gain;
 
         const snrLinear = vSignal / (vNoiseRMS || 1e-5);
@@ -85,6 +94,9 @@ Sim.Receiver = (function () {
             vSolarRaw,
             vSolarTIA,
             noiseBwHz: bw,
+            iShotRMS,
+            iThermalRMS,
+            rFOhm,
             vNoiseRMS,
             snrDb: snrDb > 0 ? snrDb : 0
         };
